@@ -1,21 +1,17 @@
 # Differential Surfel Tracing
 
-This is the fully-differentiable surfel tracer developed for our paper [EnvGS: Modeling View-Dependent Appearance with Environment Gaussian](https://zju3dv.github.io/envgs/).
+This is a differentiable 2D Gaussian ray tracer, built on the foundation of [2DGS](https://surfsplatting.github.io/) and NVIDIA OptiX, tailored for differentiable optimization and rendering tasks. Key features of this tracer include:
 
-## 🤩 Features
-
-This tracer is based on the [2DGS](https://surfsplatting.github.io/) and NVIDIA OptiX, which is designed for differentiable optimization and rendering tasks. The main features of this tracer are:
-
-- **Differentiable**: this tracer is fully differentiable, including the 2D Gaussian parameters, and the input ray origins and directions if the rays are optimizable.
-- **Path tracing**: this tracer supports multiple bounces path tracing, useful for rendering complex materials and light transport algorithms.
-- **Custom rendering**: this tracer supports custom rendering, you can add more precomputed parameters and outputs for your specific tasks.
+- **Differentiability**: The tracer is entirely differentiable, encompassing the 2D Gaussian parameters as well as the input ray origins and directions, should the rays be optimized.
+- **Path Tracing**: It supports path tracing with multiple bounces, which is beneficial for rendering complex materials and simulating intricate light transport phenomena.
+- **Customizable Rendering**: The tracer allows for customized rendering, enabling you to incorporate additional precomputed parameters and outputs tailored to your specific requirements.
 
 
 ## 📦 Installation
 
 The installation is similar to the installation of [diff-gaussian-rasterization](https://github.com/graphdeco-inria/diff-gaussian-rasterization/tree/main) and [diff-surfel-rasterization](https://github.com/hbb1/diff-surfel-rasterization) except that the [NVIDIA OptiX SDK](https://developer.nvidia.com/designworks/optix/download) is required.
 
-Download the OptiX SDK from the [NVIDIA official website](https://developer.nvidia.com/designworks/optix/download), note that OptiX 7.7.0 is recommended (need to test OptiX 8.0.0), OptiX 7.1.0 and lower is not compatible due to API changes. After installing the OptiX SDK, set the environment variable `OPTIX_HOME` to the download directory of the OptiX SDK to your `.zshrc` or `.bashrc` to expose related paths for compilation.
+Download the OptiX SDK from the [NVIDIA official website](https://developer.nvidia.com/designworks/optix/download), note that **OptiX 7.7.0** and **CUDA 11.8** is recommended, OptiX 7.1.0 and lower is not compatible due to API changes. After installing the OptiX SDK, set the environment variable `OPTIX_HOME` to the download directory of the OptiX SDK to your `.zshrc` or `.bashrc` to expose related paths for compilation.
 
 ```bash
 # CUDA related configs, you may need to change the path according to your installation
@@ -23,7 +19,7 @@ export PATH="/usr/local/cuda/bin:$PATH"
 export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
 export CUDA_HOME="/usr/local/cuda"
 # Set the environment variable OPTIX_HOME to the installation directory of the OptiX SDK
-export OPTIX_HOME=/path/to/optix > ~/.zshrc
+export OPTIX_HOME=/path/to/optix
 ```
 
 Then, install the tracer from local clone:
@@ -194,8 +190,16 @@ In addition to the default output of [diff-surfel-rasterization](https://github.
 ## 🚧 TODOs
 
 - [x] TODO: Release the initial version.
+- [ ] TODO: Test OptiX 8.0.0 and OptiX 8.1.0 compatibility.
 - [ ] TODO: Apply more of the CUDA optimization techniques.
 - [ ] TODO: Add more complex BRDFs and light transport algorithms.
+
+
+## 🎉 Third-Party Usages
+
+Awesome Papers.
+
+- [EnvGS: Modeling View-Dependent Appearance with Environment Gaussian](https://zju3dv.github.io/envgs/)
 
 
 ## 📚 Credits
