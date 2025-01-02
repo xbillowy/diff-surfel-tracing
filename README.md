@@ -24,12 +24,23 @@ export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
 export CUDA_HOME="/usr/local/cuda"
 # Set the environment variable OPTIX_HOME to the installation directory of the OptiX SDK
 export OPTIX_HOME=/path/to/optix > ~/.zshrc
+```
 
+Then, install the tracer from local clone:
+
+```bash
 # Clone the repository
 git clone https://github.com/xbillowy/diff-surfel-tracing.git
 
 # Install using pip
-pip install -v diff-surfel-tracing
+cd diff-surfel-tracing
+pip install -v -e .
+```
+
+Or the latest commit from GitHub:
+
+```bash
+pip install -v git+https://github.com/xbillowy/diff-surfel-tracing
 ```
 
 
