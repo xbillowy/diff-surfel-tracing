@@ -117,7 +117,7 @@ The `get_triangles` function is used to convert the 2DGS to vertices and faces i
 
 <details>
 
-<summary>Example implementation of `get_triangles()`</summary>
+<summary>Example implementation of <code>get_triangles()</code></summary>
 
 ```python
 def get_triangles(pcd: GaussianModel):
@@ -165,7 +165,7 @@ Most parameters are consistent with [diff-gaussian-rasterization](https://github
 
 <details>
 
-<summary>`SurfelTracingSettings` parameters</summary>
+<summary><code>SurfelTracingSettings</code> Parameters</summary>
 
 - `viewmatrix`: no actual use in the ray tracing, only for consistency with the rasterizer.
 - `projmatrix`: no actual use in the ray tracing, only for consistency with the rasterizer.
@@ -177,7 +177,7 @@ Most parameters are consistent with [diff-gaussian-rasterization](https://github
 
 <details>
 
-<summary>`SurfelTracer` parameters</summary>
+<summary><code>SurfelTracer</code> Parameters</summary>
 
 - **`ray_o`**: the origin of the rays, a 3-dimension Tensor of shape `(H, W, 3)` or `(B, P, 3)`.
 - **`ray_d`**: the direction of the rays, a 3-dimension Tensor of shape `(H, W, 3)` or `(B, P, 3)`.
