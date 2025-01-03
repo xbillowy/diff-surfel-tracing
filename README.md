@@ -51,10 +51,10 @@ from diff_surfel_tracing import SurfelTracer, SurfelTracingSettings
 # Create a SurfelTracer
 tracer = SurfelTracer()
 
-# Convert the 2DGS to vertices and faces
+# Convert 2D Gaussian primitives to triangle vertices and faces
 v, f = get_triangles(pcd)
 
-# Build acceleration structure
+# Build the acceleration structure
 tracer.build_acceleration_structure(v, f, rebuild=True)
 
 # NOTE: To avoid weird behavior, it is recommended to mannually invoke the
@@ -62,42 +62,53 @@ tracer.build_acceleration_structure(v, f, rebuild=True)
 
 # Set the surfel tracing settings
 # Check the details of the parameters in the Parameters Explanation section
-tracer_settings = SurfelTracingSettings(image_height=int(viewpoint_camera.image_height),
-                                        image_width=int(viewpoint_camera.image_width),
-                                        tanfovx=math.tan(viewpoint_camera.FoVx*0.5),
-                                        tanfovy=math.tan(viewpoint_camera.FoVy*0.5),
-                                        bg=bg_color,
-                                        scale_modifier=scale_modifier,
-                                        viewmatrix=viewpoint_camera.world_view_transform,
-                                        projmatrix=viewpoint_camera.full_proj_transform,
-                                        sh_degree=pcd.active_sh_degree,
-                                        campos=viewpoint_camera.camera_center,
-                                        prefiltered=False,
-                                        debug=False,
-                                        max_trace_depth=max_trace_depth,
-                                        specular_threshold=specular_threshold)
+tracer_settings = SurfelTracingSettings(
+    image_height=int(viewpoint_camera.image_height),
+    image_width=int(viewpoint_camera.image_width),
+    tanfovx=math.tan(viewpoint_camera.FoVx * 0.5),
+    tanfovy=math.tan(viewpoint_camera.FoVy * 0.5),
+    bg=bg_color,
+    scale_modifier=scale_modifier,
+    viewmatrix=viewpoint_camera.world_view_transform,
+    projmatrix=viewpoint_camera.full_proj_transform,
+    sh_degree=pcd.active_sh_degree,
+    campos=viewpoint_camera.camera_center,
+    prefiltered=False,
+    debug=False,
+    max_trace_depth=max_trace_depth,
+    specular_threshold=specular_threshold,
+)
 
 # Create dummy input to receive the gradient for densification
-grads3D = torch.zeros_like(means3D, dtype=means3D.dtype, requires_grad=True, device=means3D.device) + 0
-try: grads3D.retain_grad()
-except: pass
+grads3D = (
+    torch.zeros_like(
+        means3D, dtype=means3D.dtype, requires_grad=True, device=means3D.device
+    )
+    + 0
+)
+try:
+    grads3D.retain_grad()
+except:
+    pass
 
-# Trace the surfels
-# # Check the details of the inputs in the Parameters Explanation section
-rgb, dpt, acc, norm, dist, aux, mid, wet = self.tracer(ray_o,  # (H, W, 3) or (B, P, 3)
-                                                       ray_d,  # (H, W, 3) or (B, P, 3)
-                                                       v,  # (P * 4, 3)
-                                                       means3D=means3D,  # (P, 3)
-                                                       grads3D=grads3D,  # (P, 3)
-                                                       shs=shs,
-                                                       colors_precomp=colors_precomp,
-                                                       others_precomp=others_precomp,
-                                                       opacities=opacities,  # (P, 1)
-                                                       scales=scales,  # (P, 2)
-                                                       rotations=rotations,  # (P, 4)
-                                                       cov3D_precomp=cov3D_precomp,
-                                                       tracer_settings=tracer_settings,
-                                                       start_from_first=start_from_first)
+# Perform the ray tracing
+# Check the details of the inputs in the Parameters Explanation section
+rgb, dpt, acc, norm, dist, aux, mid, wet = tracer(
+    ray_o,  # (H, W, 3) or (B, P, 3)
+    ray_d,  # (H, W, 3) or (B, P, 3)
+    v,  # (P * 4, 3)
+    means3D=means3D,  # (P, 3)
+    grads3D=grads3D,  # (P, 3)
+    shs=shs,
+    colors_precomp=colors_precomp,
+    others_precomp=others_precomp,
+    opacities=opacities,  # (P, 1)
+    scales=scales,  # (P, 2)
+    rotations=rotations,  # (P, 4)
+    cov3D_precomp=cov3D_precomp,
+    tracer_settings=tracer_settings,
+    start_from_first=start_from_first,
+)
 ```
 
 ### 2DGS to Triangles
@@ -119,7 +130,12 @@ def get_triangles(pcd: GaussianModel):
     P, V = T.shape[0], 4  # 1 2DGS <-> 2 triangles <-> 4 vertices
 
     # 3-sigma range in local uv splat coordiantes
-    sigma3 = torch.as_tensor([[-1., 1.], [-1., -1.], [1., 1.], [1., -1.]], device=T.device) * 3  # (V, 2)
+    sigma3 = (
+        torch.as_tensor(
+            [[-1.0, 1.0], [-1.0, -1.0], [1.0, 1.0], [1.0, -1.0]], device=T.device
+        )
+        * 3
+    )  # (V, 2)
     sigma3 = torch.cat([sigma3, torch.ones_like(sigma3)], dim=-1)  # (V, 4)
     # Expand
     sigma3 = sigma3[None].repeat(P, 1, 1)  # (P, V, 4)
@@ -131,7 +147,9 @@ def get_triangles(pcd: GaussianModel):
 
     # Generate face indices
     indices = torch.arange(0, v.shape[0]).reshape(P, V).to(T.device)  # (P, V)
-    f = torch.stack([indices[:, :3], indices[:, 1:]], dim=1).reshape(-1, 3).int()  # (P, 2, 3) -> (P * 2, 3)
+    f = (
+        torch.stack([indices[:, :3], indices[:, 1:]], dim=1).reshape(-1, 3).int()
+    )  # (P, 2, 3) -> (P * 2, 3)
 
     # NOTE: `.contiguous()` is necessary for the following OptiX CUDA operations!
     v, f = v.contiguous(), f.contiguous()
