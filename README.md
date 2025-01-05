@@ -42,6 +42,20 @@ pip install -v git+https://github.com/xbillowy/diff-surfel-tracing
 
 ## 🛠️ Usage
 
+We provide a simple example in the [`example/render.py`](example/render.py) to demonstrate how to use the tracer. To use the tracer, you can download our pre-trained 2DGS model and a pre-defined camera path from the [Google Drive](https://drive.google.com/file/d/1drKlXptpkht0ZVp6Ywh8ZSSXsi8RddKx/view?usp=sharing). Once you have the tracer installed and the example data downloaded, unzip the files to the root directory of this repository, and run the following commands to render the example scene:
+
+```bash
+# Install the dependencies
+pip install -r requirements.txt
+
+# Run the example to render the scene
+python example/render.py
+```
+
+The rendered RGB images, depth maps, and normal maps will be saved to the `data/result/` directory along with corresponding videos.
+
+### Core Snippets
+
 The usage of this tracer is quite similar to the use of [diff-surfel-rasterization](https://github.com/hbb1/diff-surfel-rasterization), here is an example of how to use this tracer, note that you may need a pre-trained [2DGS](https://github.com/hbb1/2d-gaussian-splatting) model first:
 
 ```python
@@ -210,7 +224,6 @@ In addition to the default output of [diff-surfel-rasterization](https://github.
 - [x] TODO: Release the initial version.
 - [ ] TODO: Test OptiX 8.0.0 and OptiX 8.1.0 compatibility.
 - [ ] TODO: Apply more of the CUDA optimization techniques.
-- [ ] TODO: Add more complex BRDFs and light transport algorithms.
 
 
 ## 🎉 Third-Party Usages
