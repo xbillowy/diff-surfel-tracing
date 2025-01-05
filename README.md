@@ -6,6 +6,8 @@ This is a differentiable 2D Gaussian ray tracer, built on the foundation of [2DG
 - **Path Tracing**: It supports path tracing with multiple bounces, which is beneficial for rendering complex materials and simulating intricate light transport phenomena.
 - **Customizable Rendering**: The tracer allows for customized rendering, enabling you to incorporate additional precomputed parameters and outputs tailored to your specific requirements.
 
+https://github.com/xbillowy/assets/diff-surfel-tracing/assets/bb3095a6-71ed-4f55-8b77-0effbc85af37
+
 
 ## 📦 Installation
 
