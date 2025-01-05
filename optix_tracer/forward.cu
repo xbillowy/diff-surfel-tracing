@@ -15,15 +15,12 @@ extern "C" {
 
 // Forward method for converting the input spherical harmonics
 // coefficients of each Gaussian to a simple RGB color
-__device__ float3 computeColorFromSH(int deg, const float3* sh, const float3& dir_orig)
+__device__ float3 computeColorFromSH(int deg, const float3* sh, const float3& dir)
 {
 	// The implementation is loosely based on code for 
 	// "Differentiable Point-Based Radiance Fields for 
 	// Efficient View Synthesis" by Zhang et al. (2022)
 	float3 result = SH_C0 * sh[0];
-
-    // Normalize the direction
-    float3 dir = normalize(dir_orig);
 
 	if (deg > 0)
 	{

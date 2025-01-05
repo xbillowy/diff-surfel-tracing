@@ -15,15 +15,12 @@ extern "C" {
 
 // Forward method for converting the input spherical harmonics
 // coefficients of each Gaussian to a simple RGB color
-__device__ float3 computeColorFromSH(int deg, const float3* sh, const float3& dir_orig, float* clamped)
+__device__ float3 computeColorFromSH(int deg, const float3* sh, const float3& dir, float* clamped)
 {
 	// The implementation is loosely based on code for 
 	// "Differentiable Point-Based Radiance Fields for 
 	// Efficient View Synthesis" by Zhang et al. (2022)
 	float3 result = SH_C0 * sh[0];
-
-    // Normalize the direction
-    float3 dir = normalize(dir_orig);
 
 	if (deg > 0)
 	{
@@ -68,11 +65,8 @@ __device__ float3 computeColorFromSH(int deg, const float3* sh, const float3& di
 
 // Backward pass for conversion of spherical harmonics to RGB for
 // each Gaussian
-__device__ void computeColorFromSHBackward(int deg, const float3* sh, const float3& dir_orig, const float* clamped, const float* dL_dcolor, float3* dL_dsh, float3& dL_ddir_orig)
+__device__ void computeColorFromSHBackward(int deg, const float3* sh, const float3& dir, const float* clamped, const float* dL_dcolor, float3* dL_dsh, float3& dL_ddir)
 {
-    // Normalize the direction
-    float3 dir = normalize(dir_orig);
-
 	// Use PyTorch rule for clamping: if clamping was applied,
 	// gradient becomes 0.
 	float3 dL_dRGB = make_float3(dL_dcolor[0], dL_dcolor[1], dL_dcolor[2]);
@@ -168,9 +162,7 @@ __device__ void computeColorFromSHBackward(int deg, const float3* sh, const floa
 		}
 	}
 	// The view direction may be an input to the computation
-	float3 dL_ddir = make_float3(dot(dRGBdx, dL_dRGB), dot(dRGBdy, dL_dRGB), dot(dRGBdz, dL_dRGB));
-	// Account for normalization of direction
-	dL_ddir_orig += dnormvdv(dir_orig, dL_ddir);
+	dL_ddir = make_float3(dot(dRGBdx, dL_dRGB), dot(dRGBdy, dL_dRGB), dot(dRGBdz, dL_dRGB));
 }
 
 
