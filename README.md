@@ -2,7 +2,7 @@
 
 This is a differentiable 2D Gaussian ray tracer, built on the foundation of [2DGS](https://surfsplatting.github.io/) and NVIDIA OptiX, tailored for differentiable optimization and rendering tasks. Key features of this tracer include:
 
-- **Differentiability**: The tracer is entirely differentiable, encompassing the 2D Gaussian parameters as well as the input ray origins and directions, should the rays be optimized.
+- **Differentiability**: The tracer is entirely differentiable, encompassing the 2D Gaussian parameters and the input ray origins and directions, should the rays be optimized.
 - **Path Tracing**: It supports path tracing with multiple bounces, which is beneficial for rendering complex materials and simulating intricate light transport phenomena.
 - **Customizable Rendering**: The tracer allows for customized rendering, enabling you to incorporate additional precomputed parameters and outputs tailored to your specific requirements.
 
@@ -13,7 +13,7 @@ https://github.com/xbillowy/assets/diff-surfel-tracing/assets/bb3095a6-71ed-4f55
 
 The installation is similar to the installation of [diff-gaussian-rasterization](https://github.com/graphdeco-inria/diff-gaussian-rasterization/tree/main) and [diff-surfel-rasterization](https://github.com/hbb1/diff-surfel-rasterization) except that the [NVIDIA OptiX SDK](https://developer.nvidia.com/designworks/optix/download) is required.
 
-Download the OptiX SDK from the [NVIDIA official website](https://developer.nvidia.com/designworks/optix/download), note that **OptiX 7.7.0** and **CUDA 11.8** is recommended, OptiX 7.1.0 and lower is not compatible due to API changes. After installing the OptiX SDK, set the environment variable `OPTIX_HOME` to the download directory of the OptiX SDK to your `.zshrc` or `.bashrc` to expose related paths for compilation.
+Download the OptiX SDK from the [NVIDIA official website](https://developer.nvidia.com/designworks/optix/download). Note that **OptiX 7.7.0** and **CUDA 11.8** are recommended, OptiX 7.1.0 and lower are not compatible due to API changes. After installing the OptiX SDK, set the environment variable `OPTIX_HOME` to the download directory of the OptiX SDK to your `.zshrc` or `.bashrc` to expose related paths for compilation.
 
 ```bash
 # CUDA related configs, you may need to change the path according to your installation
@@ -54,7 +54,7 @@ pip install -r requirements.txt
 python example/render.py
 ```
 
-The rendered RGB images, depth maps, and normal maps will be saved to the `data/result/` directory along with corresponding videos.
+The rendered RGB images, depth maps, normal maps, and corresponding videos will be saved to the `data/result/` directory.
 
 ### Core Snippets
 
@@ -73,8 +73,8 @@ v, f = get_triangles(pcd)
 # Build the acceleration structure
 tracer.build_acceleration_structure(v, f, rebuild=True)
 
-# NOTE: To avoid weird behavior, it is recommended to mannually invoke the
-# NOTE: `.contiguous()` on every input the tensors before passing them to the tracer.
+# NOTE: To avoid weird behavior, it is recommended to manually invoke the
+# NOTE: `.contiguous()` on every input tensor before passing them to the tracer.
 
 # Set the surfel tracing settings
 # Check the details of the parameters in the Parameters Explanation section
@@ -207,7 +207,7 @@ Most parameters are consistent with [diff-gaussian-rasterization](https://github
 
 ### Outputs Explanation
 
-In addition to the default output of [diff-surfel-rasterization](https://github.com/hbb1/2d-gaussian-splatting/blob/df1f6c684cc4e41a34937fd45a7847260e9c6cd7/gaussian_renderer/__init__.py#L97-L156), namely `rgb`, `dpt`, `acc`, `norm` for RGB, depth, accumulated opacity, and normal, respectively, we also provide the following outputs: `dist`, `aux`, `mid`, `wet`, see the details below.
+In addition to the default output of [diff-surfel-rasterization](https://github.com/hbb1/2d-gaussian-splatting/blob/df1f6c684cc4e41a34937fd45a7847260e9c6cd7/gaussian_renderer/__init__.py#L97-L156), namely `rgb`, `dpt`, `acc`, `norm` for RGB image, depth map, accumulated opacity, and normal map, respectively, we also provide the following outputs: `dist`, `aux`, `mid`, `wet`, see the details below.
 
 <details>
 
