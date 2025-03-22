@@ -28,17 +28,17 @@ Then, install the tracer from local clone:
 
 ```bash
 # Clone the repository
-git clone https://github.com/xbillowy/diff-surfel-tracing.git
+git clone https://github.com/zju3dv/EnvGS.git
 
-# Install using pip
-cd diff-surfel-tracing
-pip install -v -e .
+# Install using pip from the local clone
+cd EnvGS
+pip install submodule/diff-surfel-tracing
 ```
 
 Or the latest commit from GitHub:
 
 ```bash
-pip install -v git+https://github.com/xbillowy/diff-surfel-tracing
+pip install -v git+https://github.com/zju3dv/EnvGS#subdirectory=submodule/diff-surfel-tracing
 ```
 
 
@@ -48,7 +48,7 @@ We provide a simple example in the [`example/render.py`](example/render.py) to d
 
 ```bash
 # Install the dependencies
-pip install -r requirements.txt
+pip install -r example/requirements.txt
 
 # Run the example to render the scene
 python example/render.py
@@ -56,7 +56,7 @@ python example/render.py
 
 The rendered RGB images, depth maps, normal maps, and corresponding videos will be saved to the `data/result/` directory.
 
-### Core Snippets
+### Core Snippet
 
 The usage of this tracer is quite similar to the use of [diff-surfel-rasterization](https://github.com/hbb1/diff-surfel-rasterization), here is an example of how to use this tracer, note that you may need a pre-trained [2DGS](https://github.com/hbb1/2d-gaussian-splatting) model first:
 
@@ -175,7 +175,7 @@ def get_triangles(pcd: GaussianModel):
 
 </details>
 
-### Parameters Explanation
+### Parameter Explanation
 
 Most parameters are consistent with [diff-gaussian-rasterization](https://github.com/graphdeco-inria/diff-gaussian-rasterization) and [diff-surfel-rasterization](https://github.com/hbb1/diff-surfel-rasterization), here we provide details on the parameters that may be different or newly added.
 
@@ -205,13 +205,13 @@ Most parameters are consistent with [diff-gaussian-rasterization](https://github
 
 </details>
 
-### Outputs Explanation
+### Output Explanation
 
 In addition to the default output of [diff-surfel-rasterization](https://github.com/hbb1/2d-gaussian-splatting/blob/df1f6c684cc4e41a34937fd45a7847260e9c6cd7/gaussian_renderer/__init__.py#L97-L156), namely `rgb`, `dpt`, `acc`, `norm` for RGB image, depth map, accumulated opacity, and normal map, respectively, we also provide the following outputs: `dist`, `aux`, `mid`, `wet`, see the details below.
 
 <details>
 
-<summary>Additional Outputs</summary>
+<summary>Additional Output</summary>
 
 - `aux`: corresponding to the rendered `others_precomp` map in the input, used for custom rendering.
 - `mid`: the middle rendering results for each path tracing bounce, e.g., the accumulated color, opacity, and normal of the first trace will be stored if you set `max_trace_depth` to 1.
@@ -226,13 +226,6 @@ In addition to the default output of [diff-surfel-rasterization](https://github.
 - [x] TODO: Release the initial version.
 - [ ] TODO: Test OptiX 8.0.0 and OptiX 8.1.0 compatibility.
 - [ ] TODO: Apply more of the CUDA optimization techniques.
-
-
-## 🎉 Third-Party Usages
-
-Awesome Papers.
-
-- [EnvGS: Modeling View-Dependent Appearance with Environment Gaussian](https://zju3dv.github.io/envgs/)
 
 
 ## 📚 Credits

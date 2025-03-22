@@ -1,3 +1,14 @@
+/**
+ * @file ext.cpp
+ * @author xbillowy
+ * @brief 
+ * @version 0.1
+ * @date 2024-08-07
+ * 
+ * @copyright Copyright (c) 2024
+ * 
+ */
+
 #include <torch/extension.h>
 
 #include "trace_surfels.h"
