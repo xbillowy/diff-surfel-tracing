@@ -56,7 +56,7 @@ python example/render.py
 
 The rendered RGB images, depth maps, normal maps, and corresponding videos will be saved to the `data/result/` directory.
 
-### Core Snippet
+### Core Snippets
 
 The usage of this tracer is quite similar to the use of [diff-surfel-rasterization](https://github.com/hbb1/diff-surfel-rasterization), here is an example of how to use this tracer, note that you may need a pre-trained [2DGS](https://github.com/hbb1/2d-gaussian-splatting) model first:
 
@@ -175,7 +175,7 @@ def get_triangles(pcd: GaussianModel):
 
 </details>
 
-### Parameter Explanation
+### Parameters Explanation
 
 Most parameters are consistent with [diff-gaussian-rasterization](https://github.com/graphdeco-inria/diff-gaussian-rasterization) and [diff-surfel-rasterization](https://github.com/hbb1/diff-surfel-rasterization), here we provide details on the parameters that may be different or newly added.
 
@@ -205,13 +205,13 @@ Most parameters are consistent with [diff-gaussian-rasterization](https://github
 
 </details>
 
-### Output Explanation
+### Outputs Explanation
 
 In addition to the default output of [diff-surfel-rasterization](https://github.com/hbb1/2d-gaussian-splatting/blob/df1f6c684cc4e41a34937fd45a7847260e9c6cd7/gaussian_renderer/__init__.py#L97-L156), namely `rgb`, `dpt`, `acc`, `norm` for RGB image, depth map, accumulated opacity, and normal map, respectively, we also provide the following outputs: `dist`, `aux`, `mid`, `wet`, see the details below.
 
 <details>
 
-<summary>Additional Output</summary>
+<summary>Additional Outputs</summary>
 
 - `aux`: corresponding to the rendered `others_precomp` map in the input, used for custom rendering.
 - `mid`: the middle rendering results for each path tracing bounce, e.g., the accumulated color, opacity, and normal of the first trace will be stored if you set `max_trace_depth` to 1.

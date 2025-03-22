@@ -10,8 +10,7 @@ __pycache__/
 *.so
 *.orig
 *.o
-# why ignore json
-# *.json
+*.json
 *.pth
 *.npy
 *.ipynb

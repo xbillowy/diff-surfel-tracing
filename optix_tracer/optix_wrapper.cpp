@@ -1,14 +1,3 @@
-/**
- * @file optix_wrapper.cpp
- * @author xbillowy
- * @brief 
- * @version 0.1
- * @date 2024-08-17
- * 
- * @copyright Copyright (c) 2024
- * 
- */
-
 #include <cmath>
 #include <limits>
 #include <string>

@@ -1,14 +1,3 @@
-/**
- * @file auxiliary.h
- * @author your name (you@domain.com)
- * @brief 
- * @version 0.1
- * @date 2024-08-17
- * 
- * @copyright Copyright (c) 2024
- * 
- */
-
 #ifndef OPTIX_TRACER_AUXILIARY_H_INCLUDED
 #define OPTIX_TRACER_AUXILIARY_H_INCLUDED
 
