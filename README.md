@@ -246,11 +246,4 @@ We would like to acknowledge the following inspiring prior work:
   journal={arXiv preprint arXiv:2412.15215},
   year={2024}
 }
-
-@article{3dgrt2024,
-    author = {Nicolas Moenne-Loccoz and Ashkan Mirzaei and Or Perel and Riccardo de Lutio and Janick Martinez Esturo and Gavriel State and Sanja Fidler and Nicholas Sharp and Zan Gojcic},
-    title = {3D Gaussian Ray Tracing: Fast Tracing of Particle Scenes},
-    journal = {ACM Transactions on Graphics and SIGGRAPH Asia},
-    year = {2024},
-}
 ```
