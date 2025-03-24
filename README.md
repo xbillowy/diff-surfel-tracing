@@ -6,7 +6,11 @@ This is a differentiable 2D Gaussian ray tracer, built on the foundation of [2DG
 - **Path Tracing**: It supports path tracing with multiple bounces, which is beneficial for rendering complex materials and simulating intricate light transport phenomena.
 - **Customizable Rendering**: The tracer allows for customized rendering, enabling you to incorporate additional precomputed parameters and outputs tailored to your specific requirements.
 
-This 2D Gaussian ray tracer is developed for our paper [**EnvGS: Modeling View-Dependent Appearance with Environment Gaussian**](https://github.com/zju3dv/EnvGS), feel free to check it out!
+This 2D Gaussian ray tracer is developed for our paper [**EnvGS**](https://github.com/zju3dv/EnvGS), feel free to check it out!
+
+- [EnvGS: Modeling View-Dependent Appearance with Environment Gaussian](https://github.com/zju3dv/EnvGS): the tracer is **developed for**.
+- [LiDAR-RT: Gaussian-based Ray Tracing for Dynamic LiDAR Re-simulation](https://github.com/zju3dv/LiDAR-RT): uses this tracer.
+
 
 If you could make use of it in your research, please be so kind as to cite us as [Citation](#citation) and leave your star.
 
