@@ -2,8 +2,8 @@
 
 This is a differentiable 2D Gaussian ray tracer, built on the foundation of [2DGS](https://surfsplatting.github.io/) and NVIDIA OptiX, tailored for differentiable optimization and rendering tasks. Check our paper built upon this tracer:
 
-- [EnvGS: Modeling View-Dependent Appearance with Environment Gaussian](https://github.com/zju3dv/EnvGS): project this tracer is developed for.
-- [LiDAR-RT: Gaussian-based Ray Tracing for Dynamic LiDAR Re-simulation](https://github.com/zju3dv/LiDAR-RT): project that uses this tracer.
+- [EnvGS: Modeling View-Dependent Appearance with Environment Gaussian](https://github.com/zju3dv/EnvGS): paper that this tracer is developed for.
+- [LiDAR-RT: Gaussian-based Ray Tracing for Dynamic LiDAR Re-simulation](https://github.com/zju3dv/LiDAR-RT): paper that uses this tracer.
 
 Key features of this tracer include:
 
