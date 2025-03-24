@@ -12,7 +12,7 @@ This 2D Gaussian ray tracer is developed for our paper [**EnvGS**](https://githu
 - [LiDAR-RT: Gaussian-based Ray Tracing for Dynamic LiDAR Re-simulation](https://github.com/zju3dv/LiDAR-RT): uses this tracer.
 
 
-If you could make use of it in your research, please be so kind as to cite us as [Citation](#citation) and leave your star.
+If you could make use of it in your research, please be so kind as to cite us as [Citation](#citation) and leave your star 🌟.
 
 https://github.com/xbillowy/assets/diff-surfel-tracing/assets/bb3095a6-71ed-4f55-8b77-0effbc85af37
 
