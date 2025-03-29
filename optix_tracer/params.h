@@ -1,3 +1,11 @@
+// Copyright (c) 2020-2022, NVIDIA CORPORATION. All rights reserved.
+//
+// NVIDIA CORPORATION and its licensors retain all intellectual property
+// and proprietary rights in and to this software, related documentation
+// and any modifications thereto. Any use, reproduction, disclosure or
+// distribution of this software and related documentation without an express
+// license agreement from NVIDIA CORPORATION is strictly prohibited.
+
 #pragma once
 
 #include <optix.h>
@@ -72,8 +80,6 @@ struct Params
     float3* dL_dray_o;  // (H, W, 3), gradient of ray origin
     float3* dL_dray_d;  // (H, W, 3), gradient of ray direction
     float3* dL_dmeans3D;  // (P, 3), gradient of center coordinates
-    float3* dL_dgrads3D;  // (P, 3), gradient for densification, same as dL_dmeans3D
-    float3* dL_dgrads3D_abs;  // (P, 3), absolute version of dL_dgrads3D
     float3* dL_dshs;  // (P, M, 3), gradient of SHs
     float* dL_dcolors;  // (P, C), gradient of middle colors
     float* dL_dothers;  // (P, C), gradient of auxiliary parameters

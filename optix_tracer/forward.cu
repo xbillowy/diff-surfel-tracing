@@ -1,4 +1,15 @@
-#define OPTIXU_MATH_DEFINE_IN_NAMESPACE
+/**
+ * @file forward.cu
+ * @author xbillowy
+ * @brief 
+ * @version 0.1
+ * @date 2024-08-17
+ * 
+ * @copyright Copyright (c) 2024
+ * 
+ */
+
+ #define OPTIXU_MATH_DEFINE_IN_NAMESPACE
 
 #include <optix.h>
 #include <math_constants.h>
@@ -15,12 +26,15 @@ extern "C" {
 
 // Forward method for converting the input spherical harmonics
 // coefficients of each Gaussian to a simple RGB color
-__device__ float3 computeColorFromSH(int deg, const float3* sh, const float3& dir)
+__device__ float3 computeColorFromSH(int deg, const float3* sh, const float3& dir_orig)
 {
 	// The implementation is loosely based on code for 
 	// "Differentiable Point-Based Radiance Fields for 
 	// Efficient View Synthesis" by Zhang et al. (2022)
 	float3 result = SH_C0 * sh[0];
+
+    // Normalize the direction
+    float3 dir = normalize(dir_orig);
 
 	if (deg > 0)
 	{
@@ -65,10 +79,13 @@ __device__ void compute_transmat_uv(
 	const float2 scale,
 	float mod,
 	const float4 rot,
+	const float* viewmatrix,
     const float3 xyz,
 	float4* world2splat,
 	float3& normal,
-    float2& uv
+    float2& uv,
+    const uint3 idx,
+    int gidx
 ) {
     float3 R[3];
     // Convert the quaternion vector to rotation matrix, row-major, transposed version
@@ -87,6 +104,72 @@ __device__ void compute_transmat_uv(
     // Convert the intersection point from world to splat space
     float4 uv1 = matmul44x4(world2splat, make_float4(xyz.x, xyz.y, xyz.z, 1.0f));
     uv = make_float2(uv1.x / scale.x, uv1.y / scale.y);
+
+    // if (idx.x == 0 && idx.y == 1) {
+    //     printf("forwards p_orig: %.18f %.18f %.18f, rot: %.18f %.18f %.18f %.18f\n", p_orig.x, p_orig.y, p_orig.z, rot.x, rot.y, rot.z, rot.w);
+    //     printf("forwards xyz.x: %.18f, xyz.y: %.18f, xyz.z: %.18f\n", xyz.x, xyz.y, xyz.z);
+    //     printf("forwards world2splat[0]: %.18f %.18f %.18f %.18f\n", world2splat[0].x, world2splat[0].y, world2splat[0].z, world2splat[0].w);
+    //     printf("forwards world2splat[1]: %.18f %.18f %.18f %.18f\n", world2splat[1].x, world2splat[1].y, world2splat[1].z, world2splat[1].w);
+    //     printf("forwards world2splat[2]: %.18f %.18f %.18f %.18f\n", world2splat[2].x, world2splat[2].y, world2splat[2].z, world2splat[2].w);
+    //     printf("forwards uv1.x: %.28f, uv1.y: %.28f, scale: %.28f, %.28f\n", uv1.x, uv1.y, scale.x, scale.y);
+    //     printf("forwards uv.x: %.28f, uv.y: %.28f\n", uv.x, uv.y);
+    // }
+}
+
+
+__device__ bool compute_transmat_xy(
+	const float3 p_orig,
+	const float2 scale,
+	float mod,
+	const float4 rot,
+	const float* projmatrix,
+	const int W,
+	const int H,
+    float cutoff,
+    float4* P,
+    float3* splat2pixel,
+	float2& xy
+) {
+    float3 R[3], S[3], L[3];
+    // Convert the quaternion and scale vector to rotation and scale matrix, row-major, same as in torch
+    quat_to_rotmat(rot, R);
+    scale_to_mat(scale, mod, S);
+    matmul33x33(R, S, L);
+
+    // The splat2world matrix, (4, 3)
+    float3 splat2world[4] = {
+        make_float3(L[0].x, L[0].y, p_orig.x),
+        make_float3(L[1].x, L[1].y, p_orig.y),
+        make_float3(L[2].x, L[2].y, p_orig.z),
+        make_float3(0.0f, 0.0f, 1.0f)
+    };
+    // The world2ndc matrix, (4, 4)
+    float4 world2ndc[4] = {
+        make_float4(projmatrix[0], projmatrix[4], projmatrix[ 8], projmatrix[12]),
+        make_float4(projmatrix[1], projmatrix[5], projmatrix[ 9], projmatrix[13]),
+        make_float4(projmatrix[2], projmatrix[6], projmatrix[10], projmatrix[14]),
+        make_float4(projmatrix[3], projmatrix[7], projmatrix[11], projmatrix[15])
+    };
+    // The ndc2pix matrix, (3, 4)
+    float4 ndc2pix[3] = {
+        make_float4(float(W) / 2.0, 0.0, 0.0, float(W-1) / 2.0),
+        make_float4(0.0, float(H) / 2.0, 0.0, float(H-1) / 2.0),
+        make_float4(0.0, 0.0, 0.0, 1.0)
+    };
+
+    // Compute the final transformation matrix from splat space to pixel space
+    matmul34x44(ndc2pix, world2ndc, P);
+    matmul34x43(P, splat2world, splat2pixel);
+
+    // Computing the projected center of each 2D Gaussian
+    // The projected center of the 2DGS is used to create a low pass filter
+	float3 t = make_float3(cutoff * cutoff, cutoff * cutoff, -1.0f);
+	float d = dot(t, splat2pixel[2] * splat2pixel[2]);
+    if (d == 0.0) return false;
+    float3 f = t / d;
+    // Compute the projected center as the center of the AABB
+	xy = {sumf3(f * splat2pixel[0] * splat2pixel[2]), sumf3(f * splat2pixel[1] * splat2pixel[2])};
+    return true;
 }
 
 
@@ -181,11 +264,17 @@ __device__ void traceRay(
     float T_prev = 1.0f;
     float T_next = 1.0f;
     float dpt = 0.0f;
+    float cmd = 0.0f;
     float rho3d = 0.0f;
+    float rho2d = 0.0f;
     float4 world2splat[4];
     float3 xyz;
     float3 normal;
     float2 uv;
+    float cutoff;
+    float4 P[3];
+    float3 splat2pixel[3];
+    float2 xy;
     float3 result;
 
     while (1)
@@ -208,7 +297,7 @@ __device__ void traceRay(
                 continue;
 
             // Compute the actual intersection depth and coordinates in world space
-            dpt = payload.buffer[i].tmx + payload.dpt;
+            dpt = payload.buffer[i].tmx + payload.dpt + (payload.dpt == 0.0f ? 0.0f : STEP_EPSILON);
             xyz = ray_o + dpt * ray_d;
 
             // Re-initialize payload data
@@ -218,25 +307,56 @@ __device__ void traceRay(
             // Build the world to splat transformation matrix
             // and compute the normal vector
             compute_transmat_uv(params.means3D[gidx], params.scales[gidx],
-                                params.scale_modifier, params.rotations[gidx],
-                                xyz, world2splat, normal, uv);
+                                params.scale_modifier, params.rotations[gidx], params.viewmatrix,
+                                xyz, world2splat, normal, uv, idx, gidx);
             rho3d = dot(uv, uv);
 
             // Adjust the normal direction
 #if DUAL_VISIABLE
-            float3 dir = ray_d;
-            // float3 dir = params.means3D[gidx] - *params.campos;
+            // float3 dir = ray_d;
+            float3 dir = params.means3D[gidx] - *params.campos;
             float cos = -sumf3(dir * normal);
             if (cos == 0) continue;
             normal = cos > 0 ? normal : -normal;
 #endif
 
+            // First trace only
+            if (trace_depth == 0 && params.start_from_first)
+            {
+#if TIGHTBBOX
+                // The effective extent maybe depend on the opacity of Gaussian
+                cutoff = sqrtf(max(9.f + 2.f * logf(params.opacities[gidx]), 0.000001));
+#else
+                cutoff = 3.0f;
+#endif
+                // Compute the projected center of each 2D Gaussian
+                bool ok = compute_transmat_xy(params.means3D[gidx], params.scales[gidx], params.scale_modifier,
+                                              params.rotations[gidx], params.projmatrix, params.W, params.H,
+                                              cutoff, P, splat2pixel, xy);
+                // NOTE: optix launch dimension is in (H, W, 1) order
+                xy = xy - make_float2(idx.y, idx.x);
+                rho2d = dot(xy, xy) * FilterInvSquare;
+                if (!ok && rho3d > rho2d)
+                    continue;
+
+                // Determine the rendering depth
+                cmd = (rho3d <= rho2d) ? dpt : splat2pixel[2].z;
+            }
+            // Second and beyond traces don't have a defined image plane and projection matrix
+            else
+            {
+                // Disable the 2D Gaussian projection simply by setting rho2d > rho3d
+                rho2d = rho3d + 1.0f;
+                // The rendering depth is the depth of the intersection point
+                cmd = dpt;
+            }
+
             // Exclude the Gaussian that is too close to the camera
-            if (dpt < min_depth)
+            if (cmd < min_depth)
                 continue;
 
             // Get weights
-            float power = -0.5f * rho3d;
+            float power = -0.5f * min(rho3d, rho2d);
             if (power > 0.0f)
                 continue;
 
@@ -280,10 +400,25 @@ __device__ void traceRay(
                 for (int ch = 0; ch < AUX_CHANNELS; ch++)
                     O[ch] += w * params.others_precomp[ch + AUX_CHANNELS * gidx];
             }
+            // Render distortion
+            // Efficient implementation of distortion loss, see 2DGS' paper appendix.
+            float a = 1 - T_prev;
+            float m = far_n / (far_n - near_n) * (1 - near_n / cmd);
+            dist += w * (m * m * a + M2 - 2 * m * M1);
+            M1 += w * m;
+            M2 += w * m * m;
             // Render other componments
-            D += w * dpt;
+            D += w * cmd;
             N += w * normal;
-            // TODO (xbillowy): maybe add distortion computation
+
+            // if ((idx.x == 838) && (idx.y == 1291)) {
+            //     printf("forwards: contributor: %d, gidx: %d, dpt: %.12f, payload.dpt: %.12f, w: %.12f, T_next: %.12f, alpha: %.12f, power: %.12f, splat_uv.x: %.12f, splat_uv.y: %.12f, result.x: %.12f, result.y: %.12f, result.z: %.12f\n",
+            //         contributor, gidx, dpt, payload.dpt, w, T_next, alpha, power, uv.x, uv.y, result.x, result.y, result.z);
+            //     // printf("contributor: %d, gidx: %d, dpt: %.12f, payload.dpt: %.12f, mean.x: %.12f, mean.y: %.12f, mean.z: %.12f, scale.x: %.12f, scale.y: %.12f, rot.x: %.12f, rot.y: %.12f, rot.z: %.12f, rot.w: %.12f\n",
+            //     //     contributor, gidx, dpt, payload.dpt, params.means3D[gidx].x, params.means3D[gidx].y, params.means3D[gidx].z, params.scales[gidx].x, params.scales[gidx].y, params.rotations[gidx].x, params.rotations[gidx].y, params.rotations[gidx].z, params.rotations[gidx].w);
+            //     // printf("contributor: %d, gidx: %d, dpt: %.12f, payload.dpt: %.12f, xyz.x: %.12f, xyz.y: %.12f, xyz.z: %.12f, uv.x: %.12f, uv.y: %.12f\n",
+            //     //     contributor, gidx, dpt, payload.dpt, xyz.x, xyz.y, xyz.z, uv.x, uv.y);
+            // }
 
             // Update transmittence
             T_prev = T_next;
@@ -300,10 +435,10 @@ __device__ void traceRay(
             break;
 
         // Re-initialize payload data
-        payload.dpt = dpt + STEP_EPSILON;  // avoid self-intersection
+        payload.dpt = dpt;
         payload.cnt = 0;
         // Update ray origin
-        ray_ot = ray_o + payload.dpt * ray_d;
+        ray_ot = ray_o + (payload.dpt + STEP_EPSILON) * ray_d;
     }
 
     // Return values
@@ -350,7 +485,7 @@ __device__ void tracePath(
         float3 E = make_float3(0.0f, 0.0f, 0.0f);
 
         // Prepare tracing parameters
-        float min_depth = (i == 0 && params.start_from_first) ? near_n : (i == 0  && !params.start_from_first) ? 0.0f : START_OFFSET;
+        float min_depth = (i == 0 && params.start_from_first) ? near_n : START_OFFSET;
         float max_depth = DEPTH_INFINTY;
         float T_threshold = (i == 0 && params.start_from_first) ? 0.0001f : 0.0001f;
 
@@ -419,7 +554,7 @@ __device__ void tracePath(
         // Update the ray origin and direction for the next trace
         float3 n = normalize(N);
         ray_dt = ray_dt - 2 * dot(n, ray_dt) * n;
-        ray_ot = E + START_OFFSET * ray_dt;
+        ray_ot = E + STEP_EPSILON * ray_dt;
     }
 }
 
