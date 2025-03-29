@@ -21,7 +21,20 @@ https://github.com/xbillowy/assets/diff-surfel-tracing/assets/bb3095a6-71ed-4f55
 
 The installation is similar to the installation of [diff-gaussian-rasterization](https://github.com/graphdeco-inria/diff-gaussian-rasterization/tree/main) and [diff-surfel-rasterization](https://github.com/hbb1/diff-surfel-rasterization) except that the [NVIDIA OptiX SDK](https://developer.nvidia.com/designworks/optix/download) is required.
 
-Download the OptiX SDK from the [NVIDIA official website](https://developer.nvidia.com/designworks/optix/download). Note that **OptiX 7.7.0** and **CUDA 11.8** are recommended, OptiX 7.1.0 and lower are not compatible due to API changes. After installing the OptiX SDK, set the environment variable `OPTIX_HOME` to the download directory of the OptiX SDK to your `.zshrc` or `.bashrc` to expose related paths for compilation.
+We have included the [official OptiX SDK header files](https://github.com/NVIDIA/optix-dev) in the `third_party/optix` directory as a submodule, so by default, you don't need to download the OptiX SDK from the [NVIDIA official website](https://developer.nvidia.com/designworks/optix/download), just add the `--recursive` flag when cloning the repository.
+
+The default installation is as follows:
+
+```bash
+# Clone the repository
+git clone https://github.com/xbillowy/diff-surfel-tracing.git --recursive
+cd diff-surfel-tracing
+
+# Install using pip
+pip install -v .  # add the `-v` flag for verbose output
+```
+
+If you want to use the OptiX SDK from the [NVIDIA official website](https://developer.nvidia.com/designworks/optix/download) for maybe a specific version, you can download the OptiX SDK and set the environment variable `OPTIX_HOME` to the download directory of the OptiX SDK to your `.zshrc` or `.bashrc` to expose related paths for compilation.
 
 ```bash
 # CUDA related configs, you may need to change the path according to your installation
@@ -30,23 +43,6 @@ export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
 export CUDA_HOME="/usr/local/cuda"
 # Set the environment variable OPTIX_HOME to the installation directory of the OptiX SDK
 export OPTIX_HOME=/path/to/optix
-```
-
-Then, install the tracer from local clone:
-
-```bash
-# Clone the repository
-git clone https://github.com/zju3dv/EnvGS.git
-
-# Install using pip from the local clone
-cd EnvGS
-pip install submodule/diff-surfel-tracing
-```
-
-Or the latest commit from GitHub:
-
-```bash
-pip install -v git+https://github.com/zju3dv/EnvGS#subdirectory=submodule/diff-surfel-tracing
 ```
 
 

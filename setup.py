@@ -5,10 +5,13 @@ from torch.utils.cpp_extension import CUDAExtension, BuildExtension
 
 
 # Determine the OptiX SDK path
-OPTIX_HOME = os.environ.get('OPTIX_HOME')
-if OPTIX_HOME is None or not os.path.exists(OPTIX_HOME):
-    OPTIX_HOME = os.path.join(os.path.dirname(os.path.abspath(__file__)), "third_party/optix")
-    if not os.path.exists(OPTIX_HOME):
+# If there is a optix directory in the `third_party` directory, use it as the OptiX SDK path
+# Otherwise, use the environment variable `OPTIX_HOME`
+# If both are not set, raise an error
+OPTIX_HOME = os.path.join(os.path.dirname(os.path.abspath(__file__)), "third_party/optix")
+if not os.path.exists(OPTIX_HOME):
+    OPTIX_HOME = os.environ.get('OPTIX_HOME')
+    if OPTIX_HOME is None or not os.path.exists(OPTIX_HOME):
         raise ValueError("Please set the OPTIX_HOME environment variable to the path to the OptiX SDK")
 OPTIX_HOME = os.path.join(OPTIX_HOME, "include")
 print(f"Using OptiX SDK at {OPTIX_HOME}")
