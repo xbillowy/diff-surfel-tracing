@@ -1,14 +1,3 @@
-/**
- * @file config.h
- * @author xbillowy (xbillowy@gmail.com)
- * @brief 
- * @version 0.1
- * @date 2024-08-17
- * 
- * @copyright Copyright (c) 2024
- * 
- */
-
 #ifndef OPTIX_TRACER_CONFIG_H_INCLUDED
 #define OPTIX_TRACER_CONFIG_H_INCLUDED
 

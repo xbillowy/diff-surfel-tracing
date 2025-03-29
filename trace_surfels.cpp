@@ -1,14 +1,3 @@
-/**
- * @file trace_surfels.cpp
- * @author xbillowy
- * @brief 
- * @version 0.1
- * @date 2024-08-07
- * 
- * @copyright Copyright (c) 2024
- * 
- */
-
 #include <torch/extension.h>
 #include <cuda_runtime_api.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -315,7 +304,7 @@ TraceSurfelsCUDA(
 }
 
 
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
 TraceSurfelsBackwardCUDA(
     const OptiXStateWrapper& stateWrapper,
     const bool start_from_first,
@@ -387,6 +376,8 @@ TraceSurfelsBackwardCUDA(
     torch::Tensor dL_dray_o = torch::zeros({H, W, 3}, ray_o.options());
     torch::Tensor dL_dray_d = torch::zeros({H, W, 3}, ray_d.options());
     torch::Tensor dL_dmeans3D = torch::zeros({P, 3}, means3D.options());
+    torch::Tensor dL_dgrads3D = torch::zeros({P, 3}, means3D.options());
+    torch::Tensor dL_dgrads3D_abs = torch::zeros({P, 3}, means3D.options());
     torch::Tensor dL_dshs = torch::zeros({P, M, 3}, means3D.options());
     torch::Tensor dL_dcolors = torch::zeros({P, NUM_CHANNELS}, means3D.options());
     torch::Tensor dL_dothers = torch::zeros({P, AUX_CHANNELS}, means3D.options());
@@ -444,6 +435,8 @@ TraceSurfelsBackwardCUDA(
     params.dL_dray_o = reinterpret_cast<float3*>(dL_dray_o.contiguous().data_ptr<float>());
     params.dL_dray_d = reinterpret_cast<float3*>(dL_dray_d.contiguous().data_ptr<float>());
     params.dL_dmeans3D = reinterpret_cast<float3*>(dL_dmeans3D.contiguous().data_ptr<float>());
+    params.dL_dgrads3D = reinterpret_cast<float3*>(dL_dgrads3D.contiguous().data_ptr<float>());
+    params.dL_dgrads3D_abs = reinterpret_cast<float3*>(dL_dgrads3D_abs.contiguous().data_ptr<float>());
     params.dL_dshs = reinterpret_cast<float3*>(dL_dshs.contiguous().data_ptr<float>());
     params.dL_dcolors = dL_dcolors.contiguous().data_ptr<float>();
     params.dL_dothers = dL_dothers.contiguous().data_ptr<float>();
@@ -466,6 +459,6 @@ TraceSurfelsBackwardCUDA(
     // Synchronize stream
     CUDA_CHECK(cudaStreamSynchronize(stream));
 
-    return std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>(
-        dL_dray_o, dL_dray_d, dL_dmeans3D, dL_dshs, dL_dcolors, dL_dothers, dL_dopacities, dL_dscales, dL_drotations, dL_dtransMat_precomp);
+    return std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>(
+        dL_dray_o, dL_dray_d, dL_dmeans3D, dL_dgrads3D, dL_dgrads3D_abs, dL_dshs, dL_dcolors, dL_dothers, dL_dopacities, dL_dscales, dL_drotations, dL_dtransMat_precomp);
 }

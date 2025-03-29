@@ -1,15 +1,4 @@
-/**
- * @file backward.cu
- * @author xbillowy
- * @brief 
- * @version 0.1
- * @date 2024-08-26
- * 
- * @copyright Copyright (c) 2024
- * 
- */
-
- #define OPTIXU_MATH_DEFINE_IN_NAMESPACE
+#define OPTIXU_MATH_DEFINE_IN_NAMESPACE
 
 #include <optix.h>
 #include <math_constants.h>
@@ -26,15 +15,12 @@ extern "C" {
 
 // Forward method for converting the input spherical harmonics
 // coefficients of each Gaussian to a simple RGB color
-__device__ float3 computeColorFromSH(int deg, const float3* sh, const float3& dir_orig, float* clamped)
+__device__ float3 computeColorFromSH(int deg, const float3* sh, const float3& dir, float* clamped)
 {
 	// The implementation is loosely based on code for 
 	// "Differentiable Point-Based Radiance Fields for 
 	// Efficient View Synthesis" by Zhang et al. (2022)
 	float3 result = SH_C0 * sh[0];
-
-    // Normalize the direction
-    float3 dir = normalize(dir_orig);
 
 	if (deg > 0)
 	{
@@ -79,11 +65,8 @@ __device__ float3 computeColorFromSH(int deg, const float3* sh, const float3& di
 
 // Backward pass for conversion of spherical harmonics to RGB for
 // each Gaussian
-__device__ void computeColorFromSHBackward(int deg, const float3* sh, const float3& dir_orig, const float* clamped, const float* dL_dcolor, float3* dL_dsh, float3& dL_ddir_orig)
+__device__ void computeColorFromSHBackward(int deg, const float3* sh, const float3& dir, const float* clamped, const float* dL_dcolor, float3* dL_dsh, float3& dL_ddir)
 {
-    // Normalize the direction
-    float3 dir = normalize(dir_orig);
-
 	// Use PyTorch rule for clamping: if clamping was applied,
 	// gradient becomes 0.
 	float3 dL_dRGB = make_float3(dL_dcolor[0], dL_dcolor[1], dL_dcolor[2]);
@@ -179,9 +162,7 @@ __device__ void computeColorFromSHBackward(int deg, const float3* sh, const floa
 		}
 	}
 	// The view direction may be an input to the computation
-	float3 dL_ddir = make_float3(dot(dRGBdx, dL_dRGB), dot(dRGBdy, dL_dRGB), dot(dRGBdz, dL_dRGB));
-	// Account for normalization of direction
-	dL_ddir_orig += dnormvdv(dir_orig, dL_ddir);
+	dL_ddir = make_float3(dot(dRGBdx, dL_dRGB), dot(dRGBdy, dL_dRGB), dot(dRGBdz, dL_dRGB));
 }
 
 
@@ -192,13 +173,10 @@ __device__ void compute_transmat_uv_forward(
 	const float2 scale,
 	float mod,
 	const float4 rot,
-	const float* viewmatrix,
     const float3 xyz,
 	float4* world2splat,
 	float3& normal,
-    float2& uv,
-    const uint3 idx,
-    int gidx
+    float2& uv
 ) {
     float3 R[3];
     // Convert the quaternion vector to rotation matrix, row-major, transposed version
@@ -217,16 +195,6 @@ __device__ void compute_transmat_uv_forward(
     // Convert the intersection point from world to splat space
     float4 uv1 = matmul44x4(world2splat, make_float4(xyz.x, xyz.y, xyz.z, 1.0f));
     uv = make_float2(uv1.x / scale.x, uv1.y / scale.y);
-
-    // if (idx.x == 0 && idx.y == 1) {
-    //     printf("backward p_orig: %.18f %.18f %.18f, rot: %.18f %.18f %.18f %.18f\n", p_orig.x, p_orig.y, p_orig.z, rot.x, rot.y, rot.z, rot.w);
-    //     printf("backward xyz.x: %.18f, xyz.y: %.18f, xyz.z: %.18f\n", xyz.x, xyz.y, xyz.z);
-    //     printf("backward world2splat[0]: %.18f %.18f %.18f %.18f\n", world2splat[0].x, world2splat[0].y, world2splat[0].z, world2splat[0].w);
-    //     printf("backward world2splat[1]: %.18f %.18f %.18f %.18f\n", world2splat[1].x, world2splat[1].y, world2splat[1].z, world2splat[1].w);
-    //     printf("backward world2splat[2]: %.18f %.18f %.18f %.18f\n", world2splat[2].x, world2splat[2].y, world2splat[2].z, world2splat[2].w);
-    //     printf("backward uv1.x: %.28f, uv1.y: %.28f, scale: %.28f, %.28f\n", uv1.x, uv1.y, scale.x, scale.y);
-    //     printf("backward uv.x: %.28f, uv.y: %.28f\n", uv.x, uv.y);
-    // }
 }
 
 
@@ -235,11 +203,8 @@ __device__ void compute_transmat_uv_backward(
 	const float2 scale, 
 	float mod,
 	const float4 rot,
-	const float* viewmatrix,
     const float3 xyz,
 	const float4* world2splat,
-	const float4* P,
-	const float3* splat2pixel,
 	const float normal_sign,
     const float2 uv,
 	const float3 ray_o,
@@ -260,9 +225,7 @@ __device__ void compute_transmat_uv_backward(
 	float3& dL_dray_d,
 	float2& dL_dscale,
 	float4& dL_drot,
-	float3& dL_dmean3D,
-	const uint3 idx,
-	int gidx
+	float3& dL_dmean3D
 )
 {
 	// Compute the gradient w.r.t. the uv
@@ -305,17 +268,6 @@ __device__ void compute_transmat_uv_backward(
 	dL_dray_o += dL_dxyz + dL_dd * -n / q;
 	dL_dray_d += dL_dxyz * dpt + dL_dd * -p / (q * q) * n;
 
-	// if ((idx.x == 420) && (idx.y == 600)) {
-	// 	float t = P / Q;
-	// 	float3 sec = ray_o + t * ray_d;
-	// 	printf("gidx: %u, optix xyz: %.18f %.18f %.18f\n", gidx, xyz.x, xyz.y, xyz.z);
-	// 	printf("gidx: %u, optix sec: %.18f %.18f %.18f\n", gidx, sec.x, sec.y, sec.z);
-	// 	printf("dL_dv1: %.18f %.18f %.18f\n", dL_dv1.x, dL_dv1.y, dL_dv1.z);
-	// 	printf("dL_dd: %.18f, Q: %.18f, N/Q: %.18f %.18f %.18f\n", dL_dd, Q, (N / Q).x, (N / Q).y, (N / Q).z);
-	// 	printf("dL_dv2: %.18f %.18f %.18f\n", dL_dv2.x, dL_dv2.y, dL_dv2.z);
-	// 	printf("dL_dv3: %.18f %.18f %.18f\n", dL_dv3.x, dL_dv3.y, dL_dv3.z);
-	// }
-
 	// Update the gradient w.r.t. the transposed rotation matrix R
 	dL_dR[0].x += scale.x * (h1.x * dL_dv1.x + h2.x * dL_dv2.x + h3.x * dL_dv3.x);
 	dL_dR[0].y += scale.x * (h1.x * dL_dv1.y + h2.x * dL_dv2.y + h3.x * dL_dv3.y);
@@ -332,134 +284,6 @@ __device__ void compute_transmat_uv_backward(
 
 	// Update the gradient w.r.t. the mean3D
 	dL_dmean3D += dL_dv1 + dL_dv2 + dL_dv3;
-}
-
-
-__device__ bool compute_transmat_xy_forward(
-	const float3 p_orig,
-	const float2 scale,
-	float mod,
-	const float4 rot,
-	const float* projmatrix,
-	const int W,
-	const int H,
-    float cutoff,
-    float4* P,
-    float3* splat2pixel,
-	float2& xy
-) {
-    float3 R[3], S[3], L[3];
-    // Convert the quaternion and scale vector to rotation and scale matrix, row-major, same as in torch
-    quat_to_rotmat(rot, R);
-    scale_to_mat(scale, mod, S);
-    matmul33x33(R, S, L);
-
-    // The splat2world matrix, (4, 3)
-    float3 splat2world[4] = {
-        make_float3(L[0].x, L[0].y, p_orig.x),
-        make_float3(L[1].x, L[1].y, p_orig.y),
-        make_float3(L[2].x, L[2].y, p_orig.z),
-        make_float3(0.0f, 0.0f, 1.0f)
-    };
-    // The world2ndc matrix, (4, 4)
-	// NOTE: The order here corresponds to the weird original 3DGS torch transpose conversion
-    float4 world2ndc[4] = {
-        make_float4(projmatrix[0], projmatrix[4], projmatrix[ 8], projmatrix[12]),
-        make_float4(projmatrix[1], projmatrix[5], projmatrix[ 9], projmatrix[13]),
-        make_float4(projmatrix[2], projmatrix[6], projmatrix[10], projmatrix[14]),
-        make_float4(projmatrix[3], projmatrix[7], projmatrix[11], projmatrix[15])
-    };
-    // The ndc2pix matrix, (3, 4)
-    float4 ndc2pix[3] = {
-        make_float4(float(W) / 2.0, 0.0, 0.0, float(W-1) / 2.0),
-        make_float4(0.0, float(H) / 2.0, 0.0, float(H-1) / 2.0),
-        make_float4(0.0, 0.0, 0.0, 1.0)
-    };
-
-    // Compute the final transformation matrix from splat space to pixel space
-    matmul34x44(ndc2pix, world2ndc, P);
-    matmul34x43(P, splat2world, splat2pixel);
-
-    // Computing the projected center of each 2D Gaussian
-    // The projected center of the 2DGS is used to create a low pass filter
-	float3 t = make_float3(cutoff * cutoff, cutoff * cutoff, -1.0f);
-	float d = dot(t, splat2pixel[2] * splat2pixel[2]);
-    if (d == 0.0) return false;
-    float3 f = t / d;
-    // Compute the projected center as the center of the AABB
-	xy = {sumf3(f * splat2pixel[0] * splat2pixel[2]), sumf3(f * splat2pixel[1] * splat2pixel[2])};
-    return true;
-}
-
-
-__device__ bool compute_transmat_xy_backward(
-	const float3 p_orig,
-	const float2 scale,
-	float mod,
-	const float4 rot,
-	const float* projmatrix,
-	const int W,
-	const int H,
-    float cutoff,
-	const float4* P,
-    const float3* splat2pixel,
-	const float normal_sign,
-	const float2 xy,
-	const float G,
-	const float power_clamped,
-	const float3 dL_dN,
-	const float dL_dD,
-	const float dL_dG,
-	float2& dL_dscale,
-	float4& dL_drot,
-	float3& dL_dmean3D,
-    const uint3 idx,
-    int gidx
-) {
-	// Compute the gradient w.r.t. the Gaussian 2D position xy
-	float2 dL_dxy = dL_dG * power_clamped * -G * FilterInvSquare * xy;
-
-	// Compute the gradient w.r.t. the splat2pixel transformation matrix
-	float3 dL_dsplat2pixel[3] = {
-		make_float3(0.0f, 0.0f, 0.0f),
-		make_float3(0.0f, 0.0f, 0.0f),
-		make_float3(0.0f, 0.0f, 0.0f)
-	};
-	// Through depth
-	dL_dsplat2pixel[2].z += dL_dD;
-	// Through G
-	float3 t = make_float3(cutoff * cutoff, cutoff * cutoff, -1.0f);
-	float d = dot(t, splat2pixel[2] * splat2pixel[2]);
-	float3 f = t / d;
-	dL_dsplat2pixel[0] += dL_dxy.x * f * splat2pixel[2];
-	dL_dsplat2pixel[1] += dL_dxy.y * f * splat2pixel[2];
-	dL_dsplat2pixel[2] += dL_dxy.x * f * splat2pixel[0] + dL_dxy.y * f * splat2pixel[1];
-	float3 dL_df = dL_dxy.x * splat2pixel[0] * splat2pixel[2] + dL_dxy.y * splat2pixel[1] * splat2pixel[2];
-	float dL_dd = dot(dL_df, f) * (-1.0f / d);
-	dL_dsplat2pixel[2] += dL_dd * t * splat2pixel[2] * 2.0f;
-
-	// Update the gradient w.r.t. the scale, rotation, and mean3D
-	float3 dL_dsplat2world[4];
-	matmul34transposex33(P, dL_dsplat2pixel, dL_dsplat2world);  // (3, 4)^T x (3, 3) = (4, 3)
-
-	// NOTE: the R here is the transposed rotation matrix,
-	// NOTE: in order to use the quat_to_rotmat_vjp() function
-	float3 dL_dR[3] = {
-		make_float3(dL_dsplat2world[0].x, dL_dsplat2world[1].x, dL_dsplat2world[2].x) * scale.x,
-		make_float3(dL_dsplat2world[0].y, dL_dsplat2world[1].y, dL_dsplat2world[2].y) * scale.y,
-		dL_dN * normal_sign
-	};
-	// Update gradient w.r.t. rotation
-	dL_drot = quat_to_rotmat_vjp(rot, dL_dR);
-
-	float3 R[3];
-	quat_to_rotmat(rot, R);
-	// Update the gradient w.r.t. the scale
-	dL_dscale.x = dL_dsplat2world[0].x * R[0].x + dL_dsplat2world[1].x * R[1].x + dL_dsplat2world[2].x * R[2].x;
-	dL_dscale.y = dL_dsplat2world[0].y * R[0].y + dL_dsplat2world[1].y * R[1].y + dL_dsplat2world[2].y * R[2].y;
-
-	// Update the gradient w.r.t. the mean3D
-	dL_dmean3D = make_float3(dL_dsplat2world[0].z, dL_dsplat2world[1].z, dL_dsplat2world[2].z);
 }
 
 
@@ -570,19 +394,21 @@ __device__ void traceRay(
     float T_next = 1.0f;
 	float c[NUM_CHANNELS] = {0.0f};
     float dpt = 0.0f;
-    float cmd = 0.0f;
     float rho3d = 0.0f;
-    float rho2d = 0.0f;
     float4 world2splat[4];
     float3 xyz;
     float3 normal;
 	float normal_sign = 1.0f;
     float2 uv;
-	float cutoff;
-    float4 P[3];
-    float3 splat2pixel[3];
-    float2 xy;
     float3 result;
+
+	float cutoff;
+#if TIGHTBBOX
+	// The effective extent maybe depend on the opacity of Gaussian
+	cutoff = sqrtf(max(9.f + 2.f * logf(params.opacities[gidx]), 0.000001));
+#else
+	cutoff = 3.0f;
+#endif
 
 	// The accumulated transmittance is required via backward
 	// TODO (xbillowy): maybe remove this?
@@ -614,7 +440,7 @@ __device__ void traceRay(
                 continue;
 
             // Compute the actual intersection depth and coordinates in world space
-            dpt = payload.buffer[i].tmx + payload.dpt + (payload.dpt == 0.0f ? 0.0f : STEP_EPSILON);
+            dpt = payload.buffer[i].tmx + payload.dpt;
             xyz = ray_o + dpt * ray_d;
 
             // Re-initialize payload data
@@ -624,57 +450,26 @@ __device__ void traceRay(
             // Build the world to splat transformation matrix
             // and compute the normal vector
             compute_transmat_uv_forward(params.means3D[gidx], params.scales[gidx],
-                                		params.scale_modifier, params.rotations[gidx], params.viewmatrix,
-										xyz, world2splat, normal, uv, idx, gidx);
+                                		params.scale_modifier, params.rotations[gidx],
+										xyz, world2splat, normal, uv);
             rho3d = dot(uv, uv);
 
 			// Adjust the normal direction and get the sign
 #if DUAL_VISIABLE
-			// float3 dir = ray_d;
-			float3 dir = params.means3D[gidx] - *params.campos;
+			float3 dir = ray_d;
+			// float3 dir = params.means3D[gidx] - *params.campos;
 			float cos = -sumf3(dir * normal);
 			if (cos == 0) continue;
 			normal_sign = cos > 0 ? 1.0f : -1.0f;
 			normal = normal_sign * normal;
 #endif
 
-            // First trace only
-            if (trace_depth == 0 && params.start_from_first)
-            {
-#if TIGHTBBOX
-				// The effective extent maybe depend on the opacity of Gaussian
-				cutoff = sqrtf(max(9.f + 2.f * logf(params.opacities[gidx]), 0.000001));
-#else
-				cutoff = 3.0f;
-#endif
-				// Compute the projected center of each 2D Gaussian
-				bool ok = compute_transmat_xy_forward(params.means3D[gidx], params.scales[gidx], params.scale_modifier,
-													  params.rotations[gidx], params.projmatrix, params.W, params.H,
-													  cutoff, P, splat2pixel, xy);
-				// NOTE: optix launch dimension is in (H, W, 1) order
-				xy = xy - make_float2(idx.y, idx.x);
-				rho2d = dot(xy, xy) * FilterInvSquare;
-				if (!ok && rho3d > rho2d)
-					continue;
-
-                // Determine the rendering depth
-                cmd = (rho3d <= rho2d) ? dpt : splat2pixel[2].z;
-			}
-            // Second and beyond traces don't have a defined image plane and projection matrix
-            else
-            {
-                // Disable the 2D Gaussian projection simply by setting rho2d > rho3d
-                rho2d = rho3d + 1.0f;
-                // The rendering depth is the depth of the intersection point
-                cmd = dpt;
-            }
-
             // Exclude the Gaussian that is too close to the camera
-            if (cmd < min_depth)
+            if (dpt < min_depth)
                 continue;
 
             // Get weights
-            float power = -0.5f * min(rho3d, rho2d);
+            float power = -0.5f * rho3d;
             if (power > 0.0f)
                 continue;
 
@@ -726,33 +521,14 @@ __device__ void traceRay(
                     O[ch] += w * params.others_precomp[ch + AUX_CHANNELS * gidx];
             }
 			// We need the depth and normal to compute the reflection direction
-			D += w * cmd;
+			D += w * dpt;
 			N += w * normal;
-			// Other components are only used in the first trace
-			if (trace_depth == 0 && params.start_from_first)
-			{
-				// Render distortion
-				// Efficient implementation of distortion loss, see 2DGS' paper appendix.
-				float a = 1 - T_prev;
-				float m = far_n / (far_n - near_n) * (1 - near_n / cmd);
-				dist += w * (m * m * a + M2 - 2 * m * M1);
-				M1 += w * m;
-				M2 += w * m * m;
-				W += w;				
-			}
-
-            // if ((idx.x == 420) && (idx.y == 600)) {
-            //     printf("backward: contributor: %d, gidx: %d, dpt: %.12f, payload.dpt: %.12f, w: %.12f, T_next: %.12f, alpha: %.12f, power: %.12f, splat_uv.x: %.12f, splat_uv.y: %.12f, result.x: %.12f, result.y: %.12f, result.z: %.12f\n",
-            //         contributor, gidx, dpt, payload.dpt, w, T_next, alpha, power, uv.x, uv.y, result.x, result.y, result.z);
-            //     // printf("contributor: %d, gidx: %d, dpt: %.12f, payload.dpt: %.12f, mean.x: %.12f, mean.y: %.12f, mean.z: %.12f, scale.x: %.12f, scale.y: %.12f, rot.x: %.12f, rot.y: %.12f, rot.z: %.12f, rot.w: %.12f\n",
-            //     //     contributor, gidx, dpt, payload.dpt, params.means3D[gidx].x, params.means3D[gidx].y, params.means3D[gidx].z, params.scales[gidx].x, params.scales[gidx].y, params.rotations[gidx].x, params.rotations[gidx].y, params.rotations[gidx].z, params.rotations[gidx].w);
-            //     // printf("contributor: %d, gidx: %d, dpt: %.12f, payload.dpt: %.12f, xyz.x: %.12f, xyz.y: %.12f, xyz.z: %.12f, uv.x: %.12f, uv.y: %.12f\n",
-            //     //     contributor, gidx, dpt, payload.dpt, xyz.x, xyz.y, xyz.z, uv.x, uv.y);
-            // }
+			// TODO (xbillowy): maybe add distortion computation
 
 			// Backward pass here
 			// NOTE: dL_dalpha = dL_dF * (T_{i-1} * f_i + (F - F_i) / (1 - alpha_i))
 			float dL_dalpha = 0.0f;
+			float numerator = 1.0f - alpha;  // better accuracy?
 
 			// Propagate gradients to per-Gaussian colors and keep
 			// gradients w.r.t. alpha (blending factor for a Gaussian/pixel pair)
@@ -766,10 +542,10 @@ __device__ void traceRay(
 				// many that were affected by this Gaussian
 				atomicAdd(&(params.dL_dcolors[ch + NUM_CHANNELS * gidx]), dL_dchannel * w);
 				// Update the gradients w.r.t. the alpha through the color
-				dL_dalpha += dL_dchannel * (T_prev * channel - (out_rgb[ch] - C[ch]) / (1.0f - alpha));
+				dL_dalpha += dL_dchannel * (T_prev * channel - (out_rgb[ch] - C[ch]) / numerator);
 				// Account for fact that alpha also influences how much of
 				// the background color is added if nothing left to blend
-				dL_dalpha += dL_dchannel * params.background[ch] * (-T_final / (1.0f - alpha));
+				dL_dalpha += dL_dchannel * params.background[ch] * (-T_final / numerator);
 			}
 			// Propagate gradients to per-Gaussian auxiliary data
 			if (params.others_precomp != nullptr)
@@ -779,70 +555,56 @@ __device__ void traceRay(
 					const float channel = params.others_precomp[ch + AUX_CHANNELS * gidx];
 					const float dL_dchannel = dL_daux[ch];
 					atomicAdd(&(params.dL_dothers[ch + AUX_CHANNELS * gidx]), dL_dchannel * w);
-					dL_dalpha += dL_dchannel * (T_prev * channel - (out_aux[ch] - O[ch]) / (1.0f - alpha));
+					dL_dalpha += dL_dchannel * (T_prev * channel - (out_aux[ch] - O[ch]) / numerator);
 				}
 			}
 			// Propagate gradients to per-Gaussian ray-splat intersection depth
 			float dL_dD = dL_ddpt * w;
-			dL_dalpha += dL_ddpt * (T_prev * cmd - (out_dpt - D) / (1.0f - alpha));
+			dL_dalpha += dL_ddpt * (T_prev * dpt - (out_dpt - D) / numerator);
 			// Propagate gradients to per-Gaussian normal
 			float3 dL_dN = dL_dnorm * w;
-			dL_dalpha += sumf3(dL_dnorm * (T_prev * normal - (out_norm - N) / (1.0f - alpha)));
+			dL_dalpha += sumf3(dL_dnorm * (T_prev * normal - (out_norm - N) / numerator));
+			// Propagate gradients to per-Gaussian weight
+			dL_dalpha += dL_dacc * (T_prev * 1.f - (out_acc - W) / numerator);
 			// Other components are only used in the first trace
-			if (trace_depth == 0 && params.start_from_first)
-			{
-				// Propagate gradients to per-Gaussian weight
-				dL_dalpha += dL_dacc * (T_prev * 1.f - (out_acc - W) / (1.0f - alpha));
-				// TODO (xbillowy): implement the distortion loss gradient
-			}
+			// TODO (xbillowy): implement the distortion loss gradient
 
 			// Helpful reusable temporary variables
 			const float dL_dG = dL_dalpha * params.opacities[gidx];
 			float power_clamped = (params.opacities[gidx] * G) > 0.99f ? 0.0f : 1.0f;
-			power_clamped = 1.0f;
 
 			// Update gradients w.r.t. opacity of the Gaussian
 			float dL_dopacity = dL_dalpha * G * power_clamped;
 			atomicAdd(&(params.dL_dopacities[gidx]), dL_dopacity);
 
-			if (rho3d <= rho2d || trace_depth != 0 || !params.start_from_first)
+			// Compute gradients w.r.t. scaling, rotation, position of the Gaussian
+			float3 v1, v2, v3, h1, h2, h3;
+			// Prepare primitive vertices and local coordinate
+			if (pidx % 2 == 0)
 			{
-				// Compute gradients w.r.t. scaling, rotation, position of the Gaussian
-				float3 v1, v2, v3, h1, h2, h3;
-				// Prepare primitive vertices and local coordinate
-				if (pidx % 2 == 0)
-				{
-					v1 = params.vertices[gidx * 4 + 0];
-					v2 = params.vertices[gidx * 4 + 1];
-					v3 = params.vertices[gidx * 4 + 2];
-					// This should be consistent with the bvh buliding process
-					h1 = make_float3(-1.0f,  1.0f, 1.0f) * cutoff;
-					h2 = make_float3(-1.0f, -1.0f, 1.0f) * cutoff;
-					h3 = make_float3( 1.0f,  1.0f, 1.0f) * cutoff;
-				}
-				else
-				{
-					v1 = params.vertices[gidx * 4 + 1];
-					v2 = params.vertices[gidx * 4 + 2];
-					v3 = params.vertices[gidx * 4 + 3];
-					// This should be consistent with the bvh buliding process
-					h1 = make_float3(-1.0f, -1.0f, 1.0f) * cutoff;
-					h2 = make_float3( 1.0f,  1.0f, 1.0f) * cutoff;
-					h3 = make_float3( 1.0f, -1.0f, 1.0f) * cutoff;
-				}
-				compute_transmat_uv_backward(params.means3D[gidx], params.scales[gidx],
-											 params.scale_modifier, params.rotations[gidx], params.viewmatrix,
-											 xyz, world2splat, P, splat2pixel, normal_sign, uv, ray_o, ray_d, cmd, v1, v2, v3, h1, h2, h3,
-											 G, power_clamped, dL_dN, dL_dD, dL_dG,
-											 dL_dray_o, dL_dray_d, dL_dscale, dL_drot, dL_dmean3D, idx, gidx);
+				v1 = params.vertices[gidx * 4 + 0];
+				v2 = params.vertices[gidx * 4 + 1];
+				v3 = params.vertices[gidx * 4 + 2];
+				// This should be consistent with the bvh buliding process
+				h1 = make_float3(-1.0f,  1.0f, 1.0f) * cutoff;
+				h2 = make_float3(-1.0f, -1.0f, 1.0f) * cutoff;
+				h3 = make_float3( 1.0f,  1.0f, 1.0f) * cutoff;
 			}
 			else
 			{
-				compute_transmat_xy_backward(params.means3D[gidx], params.scales[gidx],
-											 params.scale_modifier, params.rotations[gidx], params.projmatrix,
-											 params.W, params.H, cutoff, P, splat2pixel, normal_sign, xy, G, power_clamped,
-											 dL_dN, dL_dD, dL_dG, dL_dscale, dL_drot, dL_dmean3D, idx, gidx);
+				v1 = params.vertices[gidx * 4 + 1];
+				v2 = params.vertices[gidx * 4 + 2];
+				v3 = params.vertices[gidx * 4 + 3];
+				// This should be consistent with the bvh buliding process
+				h1 = make_float3(-1.0f, -1.0f, 1.0f) * cutoff;
+				h2 = make_float3( 1.0f,  1.0f, 1.0f) * cutoff;
+				h3 = make_float3( 1.0f, -1.0f, 1.0f) * cutoff;
 			}
+			compute_transmat_uv_backward(params.means3D[gidx], params.scales[gidx],
+										 params.scale_modifier, params.rotations[gidx],
+										 xyz, world2splat, normal_sign, uv, ray_o, ray_d, dpt, v1, v2, v3, h1, h2, h3,
+										 G, power_clamped, dL_dN, dL_dD, dL_dG,
+										 dL_dray_o, dL_dray_d, dL_dscale, dL_drot, dL_dmean3D);
 
 			// Update gradients w.r.t. scaling
 			atomicAdd(&(params.dL_dscales[gidx].x), dL_dscale.x);
@@ -856,6 +618,12 @@ __device__ void traceRay(
 			atomicAdd(&(params.dL_dmeans3D[gidx].x), dL_dmean3D.x);
 			atomicAdd(&(params.dL_dmeans3D[gidx].y), dL_dmean3D.y);
 			atomicAdd(&(params.dL_dmeans3D[gidx].z), dL_dmean3D.z);
+
+			// Update the accumulated gradients for densification
+			// NOTE: scale the gradients by half depth to avoid far distance pruning
+			atomicAdd(&(params.dL_dgrads3D[gidx].x), dL_dmean3D.x * 0.5f * dpt);
+			atomicAdd(&(params.dL_dgrads3D[gidx].y), dL_dmean3D.y * 0.5f * dpt);
+			atomicAdd(&(params.dL_dgrads3D[gidx].z), dL_dmean3D.z * 0.5f * dpt);
 
 			// Compute the gradient w.r.t. the SHs if they are present
 			if (params.colors_precomp == nullptr)
@@ -879,10 +647,10 @@ __device__ void traceRay(
             break;
 
         // Re-initialize payload data
-        payload.dpt = dpt;
+        payload.dpt = dpt + STEP_EPSILON;  // avoid self-intersection
         payload.cnt = 0;
         // Update Ray origin
-        ray_ot = ray_o + (payload.dpt + STEP_EPSILON) * ray_d;
+        ray_ot = ray_o + payload.dpt * ray_d;
 	}
 }
 
@@ -1045,7 +813,7 @@ __device__ void tracePath(
         float O[AUX_CHANNELS] = {0.0f};
 
         // Prepare tracing parameters
-        float min_depth = (i == 0 && params.start_from_first) ? near_n : START_OFFSET;
+        float min_depth = (i == 0 && params.start_from_first) ? near_n : (i == 0  && !params.start_from_first) ? 0.0f : START_OFFSET;
         float max_depth = DEPTH_INFINTY;
         float T_threshold = (i == 0 && params.start_from_first) ? 0.0001f : 0.0001f;
 

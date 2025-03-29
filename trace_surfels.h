@@ -1,14 +1,3 @@
-/**
- * @file trace_surfels.h
- * @author xbillowy
- * @brief 
- * @version 0.1
- * @date 2024-08-07
- * 
- * @copyright Copyright (c) 2024
- * 
- */
-
 #pragma once
 #include <cstdio>
 #include <tuple>
@@ -54,7 +43,7 @@ TraceSurfelsCUDA(
     const float specular_threshold);
 
 
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
 TraceSurfelsBackwardCUDA(
     const OptiXStateWrapper& stateWrapper,
     const bool start_from_first,
