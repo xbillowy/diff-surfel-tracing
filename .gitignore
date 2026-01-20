@@ -20,5 +20,6 @@ __pycache__/
 *.ply
 *.npy
 *.npz
+*.ptx
 
 data
