@@ -1,3 +1,5 @@
+
+
 # Differential Surfel Tracing
 
 This is a differentiable 2D Gaussian ray tracer, built on the foundation of [2DGS](https://surfsplatting.github.io/) and NVIDIA OptiX, tailored for differentiable optimization and rendering tasks. Key features of this tracer include:
@@ -201,7 +203,7 @@ Most parameters are consistent with [diff-gaussian-rasterization](https://github
 
 - **`ray_o`**: the origin of the rays, a 3-dimension Tensor of shape `(H, W, 3)` or `(B, P, 3)`.
 - **`ray_d`**: the direction of the rays, a 3-dimension Tensor of shape `(H, W, 3)` or `(B, P, 3)`.
-- **`v`**: the covering triangles of the 2D Gaussian splats, a 2-dimension Tensor of shape `(P, 3)`, which is used to support fully-differentiable backpropagation.
+- **`v`**: the covering triangle vertices of the 2D Gaussian splats, a 2-dimension Tensor of shape `(P * 4, 3)`, which is used to support fully-differentiable backpropagation.
 - `grads3D`: the gradient tensor for the densification, the same as [`means2D`](https://github.com/graphdeco-inria/gaussian-splatting/blob/54c035f7834b564019656c3e3fcc3646292f727d/gaussian_renderer/__init__.py#L55) in the original 3DGS rasterizer.
 - `colors_precomp`: used for RGB only, since we use pixel ray direction rather than the Gaussian center minus camera center direction as the ray direction, which means the original precomputation of the color is not applicable.
 - **`others_precomp`**: support custom rendering, you can add more. Remember to add the corresponding parameters and offsets in the [config.h](./optix_tracer/config.h).
