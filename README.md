@@ -67,8 +67,10 @@ cmake --build third_party/hiprt/build --target hiprt03001 -j16
 
 # Install using pip
 export PYTORCH_ROCM_ARCH=gfx942  # the architecture of your GPU
-pip install -v .  # add the `-v` flag for verbose output
+pip install -v --no-build-isolation .  # add the `-v` flag for verbose output
 ```
+
+`setup.py` imports PyTorch to select the back end, so `--no-build-isolation` lets pip build against the ROCm PyTorch already installed rather than in an isolated environment that lacks it. The installed package carries the HIP RT library and the kernel sources it compiles at runtime, so the cloned repository is not needed after the install.
 
 If you would rather build HIP RT somewhere outside the repository, set `HIPRT_HOME` to that directory, mirroring `OPTIX_HOME` above.
 

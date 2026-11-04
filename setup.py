@@ -3,6 +3,7 @@ import shutil
 import site
 import subprocess
 from setuptools import setup
+from setuptools.command.build_py import build_py
 from torch.utils.cpp_extension import CUDAExtension, BuildExtension
 
 import torch
@@ -159,10 +160,23 @@ def _stage_runtime_files_into_pkg():
         if not os.path.isdir(src):
             raise RuntimeError(f"HIPRT_HOME is missing {sub}: {HIPRT_HOME}")
         shutil.copytree(src, os.path.join(dst_hiprt, *sub.split("/")))
+    # The HIP RT runtime library travels with the package too, so an installed
+    # package does not depend on the build tree; _C finds it next to itself.
     if _IS_WIN_HIP:
         hiprt_dll = os.path.join(HIPRT_LIB_DIR, HIPRT_LIB + ".dll")
         if os.path.exists(hiprt_dll):
             shutil.copy(hiprt_dll, pkg)
+    else:
+        shutil.copy(os.path.join(HIPRT_LIB_DIR, "lib" + HIPRT_LIB + ".so"), pkg)
+
+
+class CustomBuildPy(build_py):
+    # build_py collects package_data before build_ext runs, so the runtime
+    # files have to be staged here for a wheel or a regular install to carry them.
+    def run(self):
+        _stage_runtime_files_into_pkg()
+        self.__dict__.pop("data_files", None)
+        super().run()
 
 
 class CustomBuildExtension(BuildExtension):
@@ -217,12 +231,14 @@ if USE_HIP:
             library_dirs=[HIPRT_LIB_DIR],
             # hipew.cpp calls GetFileVersionInfoA/VerQueryValueA from Version.lib.
             libraries=[HIPRT_LIB] + (["version"] if _IS_WIN_HIP else []),
-            extra_link_args=[] if _IS_WIN_HIP else ["-Wl,-rpath," + HIPRT_LIB_DIR],
+            extra_link_args=[] if _IS_WIN_HIP else ["-Wl,-rpath,$ORIGIN"],
         ),
     ]
     _package_data = {"diff_surfel_tracing": [
         "kernels.h", "params.h", "config.h", "auxiliary.h", "hiprt_root/**/*", "*.dll",
+        "lib" + HIPRT_LIB + ".so",
     ]}
+    _cmdclass = {'build_py': CustomBuildPy}
 else:
     _ext_modules = [
         CUDAExtension(
@@ -238,6 +254,7 @@ else:
         ),
     ]
     _package_data = {}
+    _cmdclass = {}
 
 
 # Setup for the python package
@@ -248,6 +265,7 @@ setup(
     package_data=_package_data,
     ext_modules=_ext_modules,
     cmdclass={
+        **_cmdclass,
         'build_ext': CustomBuildExtension
     }
 )
