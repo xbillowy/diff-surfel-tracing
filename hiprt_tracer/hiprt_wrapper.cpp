@@ -13,6 +13,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 #include <fstream>
 #include <iostream>
@@ -88,6 +89,8 @@ OptiXStateWrapper::OptiXStateWrapper(const std::string& pkg_dir)
     // so that oroCtxGetCurrent returns torch's context and oroGetDeviceProperties
     // returns the correct device arch for hiprtc JIT compilation. Build the full
     // path from ROCM_PATH or HIP_PATH; fall back to the bare name if unset.
+    // The hiprtc DLL's version digits change layout between ROCm releases
+    // (hiprtc0605.dll, hiprtc07013.dll), so take the copy the SDK ships.
     const char* hip_custom[2] = { nullptr, nullptr };
     const char* hiprtc_custom[2] = { nullptr, nullptr };
     std::string hip_full_path_glue, hiprtc_full_path_glue;
@@ -96,9 +99,14 @@ OptiXStateWrapper::OptiXStateWrapper(const std::string& pkg_dir)
     if (!_rocm_init) _rocm_init = getenv("HIP_PATH");
     if (_rocm_init) {
         hip_full_path_glue = std::string(_rocm_init) + "\\bin\\amdhip64_7.dll";
-        hiprtc_full_path_glue = std::string(_rocm_init) + "\\bin\\hiprtc0714.dll";
+        std::error_code ec;
+        for (const auto& e : std::filesystem::directory_iterator(std::filesystem::path(_rocm_init) / "bin", ec)) {
+            if (e.path().filename().string().rfind("hiprtc0", 0) == 0 && e.path().extension() == ".dll")
+                hiprtc_full_path_glue = e.path().string();
+        }
         hip_custom[0] = hip_full_path_glue.c_str();
-        hiprtc_custom[0] = hiprtc_full_path_glue.c_str();
+        if (!hiprtc_full_path_glue.empty())
+            hiprtc_custom[0] = hiprtc_full_path_glue.c_str();
     }
 #endif
     const char** hip_paths_arg = (hip_custom[0] != nullptr) ? hip_custom : nullptr;

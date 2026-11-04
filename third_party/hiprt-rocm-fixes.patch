@@ -103,7 +103,12 @@ in hiprt/, and it is on the path every scene of a realistic size takes.
                                  compiled against the right device.
   hiprt.cpp, hiprt_libpath.h,    build full library paths from ROCM_PATH /
   Orochi hipew.cpp               HIP_PATH so the ROCm SDK runtime is loaded in
-                                 preference to a display-driver copy on Windows.
+                                 preference to a display-driver copy on Windows,
+                                 and find the versioned hiprtc DLL in that bin
+                                 directory rather than only by a fixed name list:
+                                 HIP 7.13 ships hiprtc07013.dll, which no list
+                                 entry matches, so hiprtc never loaded and the
+                                 first runtime compile called a null pointer.
   Orochi.cpp oroSetRawDevice     initialize the device handle before setting the
                                  API and device, instead of reinterpreting the
                                  raw device index as a packed handle.
@@ -292,11 +297,12 @@ in hiprt/, and it is on the path every scene of a realistic size takes.
  	Aabb	 m_box;
 --- a/hiprt/impl/hiprt.cpp
 +++ b/hiprt/impl/hiprt.cpp
-@@ -28,12 +28,46 @@
+@@ -28,12 +28,58 @@
  #include <hiprt/impl/Context.h>
  #include <hiprt/impl/Header.h>
  #include <hiprt/impl/Utility.h>
 +#include <cstring>
++#include <filesystem>
 +#include <string>
 +#include <vector>
  
@@ -310,8 +316,19 @@ in hiprt/, and it is on the path every scene of a realistic size takes.
 +    std::vector<std::string> strs;
 +    std::vector<const char*> ptrs;
 +
-+    void build( const char** bare, const char* rocm_dir ) {
++    void build( const char** bare, const char* rocm_dir, const char* versionedPrefix = nullptr ) {
 +        strs.clear(); ptrs.clear();
++        if ( rocm_dir && versionedPrefix ) {
++            // The version digits in the DLL name change layout between ROCm
++            // releases (hiprtc0605.dll, hiprtc07013.dll), so a fixed name list
++            // goes stale; take whichever versioned copy the SDK ships.
++            std::error_code ec;
++            for ( const auto& e : std::filesystem::directory_iterator( std::filesystem::path( rocm_dir ) / "bin", ec ) ) {
++                const std::string n = e.path().filename().string();
++                if ( n.rfind( versionedPrefix, 0 ) == 0 && n.size() > 4 && n.compare( n.size() - 4, 4, ".dll" ) == 0 )
++                    strs.push_back( e.path().string() );
++            }
++        }
 +        if ( rocm_dir ) {
 +            for ( const char** p = bare; *p; ++p )
 +                strs.push_back( std::string( rocm_dir ) + "\\bin\\" + *p );
@@ -331,7 +348,7 @@ in hiprt/, and it is on the path every scene of a realistic size takes.
 +    const char* rocm = getenv( "ROCM_PATH" );
 +    if ( !rocm ) rocm = getenv( "HIP_PATH" );
 +    hip_paths.build( g_hip_paths, rocm );
-+    hiprtc_paths.build( g_hiprtc_paths, rocm );
++    hiprtc_paths.build( g_hiprtc_paths, rocm, "hiprtc0" );
 +    oroInitialize( ( input.deviceType == hiprtDeviceAMD ) ? ORO_API_HIP : ORO_API_CUDA, 0, hip_paths.data(), hiprtc_paths.data() );
 +#else
  	oroInitialize( ( input.deviceType == hiprtDeviceAMD ) ? ORO_API_HIP : ORO_API_CUDA, 0, g_hip_paths, g_hiprtc_paths );

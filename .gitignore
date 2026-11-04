@@ -42,3 +42,4 @@ trace_surfels_winhip.cu
 # Build-time hipified copies of the sources, produced by torch's build.
 *_hip.cpp
 *_hip.h
+*_winhip.hip

@@ -78,6 +78,8 @@ export HIPRT_HOME=/path/to/hiprt
 
 The AMD back end compiles its trace kernels at runtime rather than ahead of time into PTX, so the first trace after an install is slower while the kernels are compiled and written to the on-disk cache.
 
+On Windows, keep `ROCM_PATH` (or `HIP_PATH`) pointing at the ROCm SDK when running the tracer, not only when building it. HIP RT loads the HIP runtime and its runtime compiler from that SDK's `bin` directory; without it, Windows finds the HIP runtime installed with the display driver first, and that copy comes without the runtime compiler the tracer needs.
+
 To check the installation on your own GPU, run [`example/validate_rocm.py`](example/validate_rocm.py). It needs no downloaded data: it builds a small synthetic surfel scene and checks the forward image, the seven backward gradients that scene exercises, finite-difference agreement with the analytic gradients, a reflected bounce, scenes large enough to reach the multi-block sort in the acceleration-structure build, and a cold kernel cache. The four gradients it leaves out are `ray_o` and `ray_d`, which the scene does not differentiate, and `shs` and `cov3D_precomp`, which are the alternative parameterization of the colors and the scale and rotation pair it does use.
 
 ```bash
