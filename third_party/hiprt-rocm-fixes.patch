@@ -1,0 +1,539 @@
+Fixes for the HIP RT SDK required by the AMD tracer back end.
+
+Apply to a checkout of GPUOpen-LibrariesAndSDKs/HIPRT at tag 3.1.0.cb09c56
+(commit 8602b8c475255fb922c2792654aae0a6bcdeb0af) before building it:
+
+    git -C <HIPRT checkout> apply third_party/hiprt-rocm-fixes.patch
+
+They are bugs in HIP RT and in the copy of Orochi it vendors, not tracer bugs.
+Three of the eleven entries below are already fixed on HIP RT's main branch
+(e3c01fc, checked 2026-08-14) and are backported here only because the pinned
+tag predates them: the Compiler init() split, oroSetRawDevice, and the member
+initializer order and loop variable warnings. The other eight are not fixed
+there; contributing those to GPUOpen is the durable fix, and until they land
+this patch is the way to reproduce the build.
+
+The first four entries are one defect in four shapes: a value that describes all
+64 lanes of a wavefront, handled in 32 bits. Three of them are a 64-bit lane mask
+combined with a 32-bit shift expression -- only the shift's left operand decides
+the type, so "1" and "1u" produce a 32-bit value that is then widened, and on a
+64-wide wavefront the upper half of the mask is wrong. The fourth stores a whole
+64-lane ballot in a u32, which keeps the lower half of the wavefront and throws
+away the calling lane's own half. That one is in the vendored Orochi rather than
+in hiprt/, and it is on the path every scene of a realistic size takes.
+
+  BvhBuilderKernels.h            build the per-subwarp lane mask in 64 bits.
+  subwarpMask (3 sites)          "( 1 << BranchingFactor ) - 1" is an int, so
+                                 shifting it by BranchingFactor * subwarpIndex
+                                 is undefined once that reaches 32, which it
+                                 does for lanes 32..63 of a 64-wide wavefront.
+                                 The hardware shift uses only the low 5 bits of
+                                 the count, so the upper half of the wavefront
+                                 silently gets the lower half's mask. openNodes
+                                 then picks the widest child from the wrong
+                                 subwarp and can open one subtree twice, so
+                                 Collapse emits more references than there are
+                                 primitives; its exit test compares the emitted
+                                 count against the primitive count for equality
+                                 and the overshoot makes every lane spin
+                                 forever. A BVH build over a few dozen
+                                 primitives hangs the GPU on gfx90a and gfx942.
+                                 32-wide wavefronts never reach a shift of 32
+                                 and are unaffected, which is why this survives
+                                 on RDNA.
+  BvhBuilderKernels.h            clear the paired lane with a 64-bit literal.
+  PairTriangles activeMask       "~( 1u << firstPairedLane )" is an unsigned
+                                 int, so it zero-extends into the 64-bit AND and
+                                 clears bits 32..63 of activeMask whatever the
+                                 lane is. The loop that gives each lane its turn
+                                 as the broadcast lane then stops as soon as the
+                                 low 32 bits drain, lanes 32..63 keep
+                                 pairedIndex == InvalidValue, and their
+                                 triangles are never written to pairIndices --
+                                 so half of every 64-wide wavefront's triangles
+                                 are absent from the BVH. The build succeeds
+                                 and the image looks plausible; the missing
+                                 geometry is only visible if something counts
+                                 the primitives that were actually traced.
+                                 Measured on gfx90a: 31 of 64 surfels receive a
+                                 gradient before the fix, 62 of 64 after it.
+  BvhBuilderKernels.h            same, with the opposite failure. "1 <<
+  PackLeavesWarp packetMask      broadcastLane" is a signed int, so at lane 31
+                                 it is INT_MIN and sign-extends to
+                                 0xffffffff80000000 when it is xored into the
+                                 64-bit packetMask, setting bits 32..63 that
+                                 "while ( packetMask )" then cannot clear.
+                                 PackLeavesWarp builds TrianglePacketNode, which
+                                 is selected for RTIP 3.1 and later (gfx1201).
+  Orochi RadixSortKernels.h      read the calling lane's own logical warp out of
+  OnesweepReorder broThreads     the wavefront ballot. The kernel treats a
+                                 256-thread block as eight logical warps of
+                                 WARP_SIZE (32) lanes, but __ballot() reports all
+                                 64 lanes of the wavefront, and "u32 broThreads =
+                                 __ballot( ... )" keeps bits 0..31 -- so every odd
+                                 logical warp ranks its keys against the even
+                                 warp's attendee set. warpOffsets and lpSum are
+                                 then wrong for half the block, and those prefix
+                                 sums index the global outputKeys and outputValues
+                                 writes. Measured on gfx90a: a build over more
+                                 than 3072 primitives dies with "Memory access
+                                 fault ... kernel: OnesweepReorderKeyPair64".
+                                 Below that count RadixSort.cpp selects the
+                                 single-pass kernel and this one never runs, which
+                                 is why only scenes of a realistic size hit it.
+                                 32-wide wavefronts shift by zero and are
+                                 unaffected.
+  Compiler.cpp getCacheFilename  sanitize '/' and '\\' out of the device name
+                                 before it is used as a path component. Names
+                                 such as "AMD Instinct MI250X / MI250" otherwise
+                                 make the kernel cache write fail.
+  Compiler.cpp addCommonOpts     pass --offload-arch=<gcnArch> to the runtime
+                                 compiler. Without it the default target set is
+                                 used, and loading the BVH kernels fails with
+                                 hipErrorInvalidImage on an architecture that is
+                                 not in that set (gfx1201).
+  Compiler.cpp buildProgram      pass only the file name, not the absolute path,
+                                 as the runtime-compiler source name. On Windows
+                                 comgr fails silently (ret=6, empty log) when the
+                                 name starts with a drive letter.
+  Compiler.{h,cpp}, Context.cpp  move the compiler setup out of the constructor
+                                 into an explicit init() the context calls after
+                                 it has made its own context current, so a
+                                 context created from a raw HIP context is
+                                 compiled against the right device.
+  hiprt.cpp, hiprt_libpath.h,    build full library paths from ROCM_PATH /
+  Orochi hipew.cpp               HIP_PATH so the ROCm SDK runtime is loaded in
+                                 preference to a display-driver copy on Windows,
+                                 and find the versioned hiprtc DLL in that bin
+                                 directory rather than only by a fixed name list:
+                                 HIP 7.13 ships hiprtc07013.dll, which no list
+                                 entry matches, so hiprtc never loaded and the
+                                 first runtime compile called a null pointer.
+  Orochi.cpp oroSetRawDevice     initialize the device handle before setting the
+                                 API and device, instead of reinterpreting the
+                                 raw device index as a packed handle.
+  MemoryArena.h, BvhNode.h,      member initializer order, and an uninitialized
+  hiprt_device_impl.h            loop variable, all reported by clang as
+                                 warnings that are errors in this build.
+
+--- a/hiprt/hiprt_libpath.h
++++ b/hiprt/hiprt_libpath.h
+@@ -37,7 +37,9 @@
+ 	"amdhip64.dll", // <- hip '5.x' DLL.
+ 	nullptr };
+ 
+-const char* g_hiprtc_paths[] = { "hiprtc0707.dll", "hiprtc0706.dll", "hiprtc0705.dll", "hiprtc0704.dll", "hiprtc0703.dll",
++const char* g_hiprtc_paths[] = { "hiprtc0714.dll", "hiprtc0713.dll", "hiprtc0712.dll", "hiprtc0711.dll",
++								 "hiprtc0710.dll", "hiprtc0709.dll", "hiprtc0708.dll", "hiprtc0707.dll",
++								 "hiprtc0706.dll", "hiprtc0705.dll", "hiprtc0704.dll", "hiprtc0703.dll",
+ 								 "hiprtc0702.dll", "hiprtc0701.dll", "hiprtc0700.dll", "hiprtc0605.dll", "hiprtc0604.dll",
+ 								 "hiprtc0603.dll", "hiprtc0602.dll", "hiprtc0601.dll", "hiprtc0600.dll", "hiprtc0507.dll",
+ 								 "hiprtc0506.dll", "hiprtc0505.dll", "hiprtc0504.dll", "hiprtc0503.dll", nullptr };
+--- a/hiprt/impl/BvhBuilderKernels.h
++++ b/hiprt/impl/BvhBuilderKernels.h
+@@ -141,7 +141,7 @@ HIPRT_DEVICE HIPRT_INLINE void openNodes(
+ 	const uint32_t laneIndex	= threadIdx.x % WarpSize;
+ 	const uint32_t sublaneIndex = laneIndex % BranchingFactor;
+ 	const uint32_t subwarpIndex = laneIndex / BranchingFactor;
+-	const uint64_t subwarpMask	= ( ( 1 << BranchingFactor ) - 1 )
++	const uint64_t subwarpMask	= ( ( 1ull << BranchingFactor ) - 1ull )
+ 								 << static_cast<uint64_t>( ( BranchingFactor * subwarpIndex ) );
+ 
+ 	bool done = childCount == BranchingFactor;
+@@ -402,7 +402,7 @@
+ 		const uint32_t firstPairedLane = __ffsll( static_cast<unsigned long long>( hiprt::ballot( pairable ) ) ) - 1;
+ 		if ( firstPairedLane < WarpSize )
+ 		{
+-			activeMask &= ~( 1u << firstPairedLane );
++			activeMask &= ~( 1ull << firstPairedLane );
+ 			if ( laneIndex == firstPairedLane ) valid = false;
+ 
+ 			const uint32_t secondIndex = shfl( index, firstPairedLane );
+@@ -706,7 +706,7 @@ __device__ void FitBounds( Header* header, PrimitiveContainer& primitives, BoxNo
+ 	const uint32_t laneIndex	= threadIdx.x % WarpSize;
+ 	const uint32_t sublaneIndex = laneIndex % BranchingFactor;
+ 	const uint32_t subwarpIndex = laneIndex / BranchingFactor;
+-	const uint64_t subwarpMask	= ( ( 1 << BranchingFactor ) - 1 )
++	const uint64_t subwarpMask	= ( ( 1ull << BranchingFactor ) - 1ull )
+ 								 << static_cast<uint64_t>( ( BranchingFactor * subwarpIndex ) );
+ 
+ 	uint32_t index = threadIndex / BranchingFactor;
+@@ -1101,7 +1101,7 @@ __device__ void Collapse(
+ 	const uint32_t taskIndex	= index / BranchingFactor;
+ 	const uint32_t sublaneIndex = laneIndex % BranchingFactor;
+ 	const uint32_t subwarpIndex = laneIndex / BranchingFactor;
+-	const uint64_t subwarpMask	= ( ( 1 << BranchingFactor ) - 1 )
++	const uint64_t subwarpMask	= ( ( 1ull << BranchingFactor ) - 1ull )
+ 								 << static_cast<uint64_t>( ( BranchingFactor * subwarpIndex ) );
+ 
+ 	bool done = taskIndex >= maxBoxNodeCount || taskIndex >= referenceCount;
+@@ -1986,11 +1986,11 @@
+ 			const uint32_t halfLaneIndex = laneIndex % 16;
+ 
+ 			const uint32_t broadcastLane0 = __ffsll( static_cast<unsigned long long>( packetMask ) ) - 1;
+-			packetMask ^= 1 << broadcastLane0;
++			packetMask ^= 1ull << broadcastLane0;
+ 
+ 			const uint32_t broadcastLane1 = __ffsll( static_cast<unsigned long long>( packetMask ) ) - 1;
+ 			const bool	   secondValid	  = packetMask != 0;
+-			if ( secondValid ) packetMask ^= 1 << broadcastLane1;
++			if ( secondValid ) packetMask ^= 1ull << broadcastLane1;
+ 
+ 			const uint32_t			 broadcastLane			 = ( halfWarpIndex == 0 ) ? broadcastLane0 : broadcastLane1;
+ 			const uint32_t			 broadcastSubwarpIndex	 = broadcastLane / LanesPerLeafPacketTask;
+--- a/hiprt/impl/Compiler.h
++++ b/hiprt/impl/Compiler.h
+@@ -35,9 +35,10 @@
+ class Compiler
+ {
+   public:
+-	Compiler();
+ 	~Compiler();
+ 
++	void init();
++
+ 	Kernel getKernel(
+ 		Context&					 context,
+ 		const std::filesystem::path& moduleName,
+@@ -129,6 +130,7 @@
+ 	bool m_rtip31Support = false;
+ 
+ 	std::string m_rtipStr;
++	std::string m_archStr;
+ 
+ 	std::mutex					  m_kernelMutex;
+ 	std::map<std::string, Kernel> m_kernelCache;
+--- a/hiprt/impl/Compiler.cpp
++++ b/hiprt/impl/Compiler.cpp
+@@ -69,7 +69,8 @@
+ 
+ namespace hiprt
+ {
+-Compiler::Compiler()
++
++void Compiler::init()
+ {
+ 	if ( UseBitcode || UseBakedCompiledKernel || hiprtcCreateProgram == nullptr || hiprtcCompileProgram == nullptr ||
+ 		 hiprtcDestroyProgram == nullptr )
+@@ -202,10 +203,16 @@
+ 	std::vector<const char*>&		options,
+ 	orortcProgram&					progOut )
+ {
++	// Use only the filename (not the full path) as the hiprtc source name.
++	// On Windows, passing an absolute path with a drive letter (e.g. "B:\...") to
++	// hiprtcCreateProgram causes comgr to fail silently (ret=6, empty log).
++	// The source code is provided inline, so the name is only used for diagnostics
++	// and the cache key is separate (moduleName, managed by the caller).
++	const std::string srcName = moduleName.empty() ? std::string() : moduleName.filename().string();
+ 	checkOrortc( orortcCreateProgram(
+ 		&progOut,
+ 		src.c_str(),
+-		moduleName.string().c_str(),
++		srcName.c_str(),
+ 		static_cast<int>( headers.size() ),
+ 		headers.data(),
+ 		includeNames.data() ) );
+@@ -527,6 +534,16 @@
+ 		opts.push_back( m_rtipStr.c_str() );
+ 	}
+ 
++	// Pass the target GPU architecture so hiprtc generates code for the live device.
++	// Without this, hiprtc defaults to a generic target and BVH kernel loading fails
++	// with hipErrorInvalidImage on architectures not in the default set.
++	std::string gcnArch = context.getGcnArchName();
++	if ( !gcnArch.empty() && context.getDeviceName().find( "NVIDIA" ) == std::string::npos )
++	{
++		m_archStr = "--offload-arch=" + gcnArch;
++		opts.push_back( m_archStr.c_str() );
++	}
++
+ 	opts.push_back( "-D__USE_HIP__" );
+ 	opts.push_back( "-std=c++17" );
+ }
+@@ -635,6 +652,11 @@
+ 	std::string driverVersion = context.getDriverVersion();
+ 	std::string deviceName	  = context.getDeviceName();
+ 	deviceName				  = deviceName.substr( 0, deviceName.find( ":" ) );
++	// Some AMD device names (for example "AMD Instinct MI250X / MI250") contain
++	// '/', which std::filesystem::path treats as a directory separator and which
++	// breaks cache file creation. Sanitize path-hostile characters.
++	for ( char& c : deviceName )
++		if ( c == '/' || c == '\\' ) c = '_';
+ 
+ 	std::string moduleHash = moduleName.string() + src;
+ 	moduleHash			   = Utility::format( "%08x", Utility::hashString( moduleHash ) );
+--- a/hiprt/impl/Context.cpp
++++ b/hiprt/impl/Context.cpp
+@@ -39,6 +39,8 @@
+ 	oroApi api = ( input.deviceType == hiprtDeviceAMD ) ? ORO_API_HIP : ORO_API_CUDA;
+ 	oroCtxCreateFromRaw( &m_ctxt, api, input.ctxt );
+ 	m_device = oroSetRawDevice( api, input.device );
++	checkOro( oroCtxSetCurrent( m_ctxt ) );
++	m_compiler.init();
+ }
+ 
+ Context::~Context()
+--- a/hiprt/impl/MemoryArena.h
++++ b/hiprt/impl/MemoryArena.h
+@@ -30,7 +30,7 @@
+ {
+   public:
+ 	HIPRT_HOST_DEVICE MemoryArena( hiprtDevicePtr data, size_t storageSize, uint32_t alignment )
+-		: m_data( data ), m_storageSize( storageSize ), m_alignment( alignment ), m_offset( 0 )
++		: m_data( data ), m_alignment( alignment ), m_offset( 0 ), m_storageSize( storageSize )
+ 	{
+ 	}
+ 
+--- a/hiprt/impl/BvhNode.h
++++ b/hiprt/impl/BvhNode.h
+@@ -1305,7 +1305,7 @@
+ {
+ 	ReferenceNode() = default;
+ 	HIPRT_HOST_DEVICE	   ReferenceNode( uint32_t primIndex ) : m_primIndex( primIndex ) {}
+-	HIPRT_HOST_DEVICE	   ReferenceNode( uint32_t primIndex, const Aabb& box ) : m_primIndex( primIndex ), m_box( box ) {}
++	HIPRT_HOST_DEVICE	   ReferenceNode( uint32_t primIndex, const Aabb& box ) : m_box( box ), m_primIndex( primIndex ) {}
+ 	HIPRT_HOST_DEVICE Aabb aabb() const { return m_box; };
+ 
+ 	Aabb	 m_box;
+--- a/hiprt/impl/hiprt.cpp
++++ b/hiprt/impl/hiprt.cpp
+@@ -28,12 +28,58 @@
+ #include <hiprt/impl/Context.h>
+ #include <hiprt/impl/Header.h>
+ #include <hiprt/impl/Utility.h>
++#include <cstring>
++#include <filesystem>
++#include <string>
++#include <vector>
+ 
+ using namespace hiprt;
+ 
++// On Windows, LoadLibraryA with a bare DLL name uses the legacy DLL search
++// order (System32 before PATH entries) so "amdhip64_7.dll" from the AMD
++// display driver wins over the ROCm SDK's copy.  Build full-path lists from
++// ROCM_PATH / HIP_PATH so the ROCm SDK DLLs are loaded instead.
++struct DllPathList {
++    std::vector<std::string> strs;
++    std::vector<const char*> ptrs;
++
++    void build( const char** bare, const char* rocm_dir, const char* versionedPrefix = nullptr ) {
++        strs.clear(); ptrs.clear();
++        if ( rocm_dir && versionedPrefix ) {
++            // The version digits in the DLL name change layout between ROCm
++            // releases (hiprtc0605.dll, hiprtc07013.dll), so a fixed name list
++            // goes stale; take whichever versioned copy the SDK ships.
++            std::error_code ec;
++            for ( const auto& e : std::filesystem::directory_iterator( std::filesystem::path( rocm_dir ) / "bin", ec ) ) {
++                const std::string n = e.path().filename().string();
++                if ( n.rfind( versionedPrefix, 0 ) == 0 && n.size() > 4 && n.compare( n.size() - 4, 4, ".dll" ) == 0 )
++                    strs.push_back( e.path().string() );
++            }
++        }
++        if ( rocm_dir ) {
++            for ( const char** p = bare; *p; ++p )
++                strs.push_back( std::string( rocm_dir ) + "\\bin\\" + *p );
++        }
++        for ( const char** p = bare; *p; ++p )
++            strs.push_back( *p );
++        for ( auto& s : strs ) ptrs.push_back( s.c_str() );
++        ptrs.push_back( nullptr );
++    }
++    const char** data() { return ptrs.data(); }
++};
++
+ hiprtError hiprtCreateContext( uint32_t hiprtApiVersion, const hiprtContextCreationInput& input, hiprtContext& contextOut )
+ {
++    DllPathList hip_paths, hiprtc_paths;
++#ifdef _WIN32
++    const char* rocm = getenv( "ROCM_PATH" );
++    if ( !rocm ) rocm = getenv( "HIP_PATH" );
++    hip_paths.build( g_hip_paths, rocm );
++    hiprtc_paths.build( g_hiprtc_paths, rocm, "hiprtc0" );
++    oroInitialize( ( input.deviceType == hiprtDeviceAMD ) ? ORO_API_HIP : ORO_API_CUDA, 0, hip_paths.data(), hiprtc_paths.data() );
++#else
+ 	oroInitialize( ( input.deviceType == hiprtDeviceAMD ) ? ORO_API_HIP : ORO_API_CUDA, 0, g_hip_paths, g_hiprtc_paths );
++#endif
+ 	if ( hiprtApiVersion != HIPRT_API_VERSION ) return hiprtErrorInvalidApiVersion;
+ 
+ 	try
+--- a/hiprt/impl/hiprt_device_impl.h
++++ b/hiprt/impl/hiprt_device_impl.h
+@@ -252,7 +252,7 @@
+   public:
+ 	HIPRT_DEVICE TraversalBase(
+ 		const hiprtRay& ray, Stack& stack, hiprtTraversalHint hint, void* payload, hiprtFuncTable funcTable, uint32_t rayType )
+-		: m_ray( ray ), m_stack( stack ), m_payload( payload ), m_rayType( rayType ), m_nodeIndex( RootIndex ), m_hint( hint )
++		: m_ray( ray ), m_stack( stack ), m_payload( payload ), m_nodeIndex( RootIndex ), m_rayType( rayType ), m_hint( hint )
+ 	{
+ 		if ( funcTable != nullptr ) m_tableHeader = *reinterpret_cast<hiprtFuncTableHeader*>( funcTable );
+ #if HIPRT_RTIP >= 11
+@@ -939,8 +939,8 @@
+ 	hiprtFuncTable	   funcTable,
+ 	uint32_t		   rayType,
+ 	float			   time )
+-	: TraversalBase<Stack, TraversalType>( ray, stack, hint, payload, funcTable, rayType ), m_time( time ), m_mask( mask ),
+-	  m_instanceStack( instanceStack ), m_level( 0u )
++	: TraversalBase<Stack, TraversalType>( ray, stack, hint, payload, funcTable, rayType ), m_instanceStack( instanceStack ), m_mask( mask ),
++	  m_level( 0u ), m_time( time )
+ {
+ 	SceneHeader* sceneHeader = reinterpret_cast<SceneHeader*>( scene );
+ 	m_boxNodes				 = sceneHeader->m_boxNodes;
+@@ -1823,24 +1823,29 @@
+ 	hiprt::SceneHeader* sceneHeader = reinterpret_cast<hiprt::SceneHeader*>( scene );
+ 	float3				p			= point;
+ 
+-	uint32_t depth;
++	uint32_t depth = 0;
+ #pragma unroll
+-	for ( depth = 1; depth < hiprtMaxInstanceLevels; ++depth )
++	for ( uint32_t i = 0; i < hiprtMaxInstanceLevels; ++i )
+ 	{
+-		sceneHeaders[depth - 1] = sceneHeader;
+-		const auto& instance	= sceneHeader->m_instances[instanceIDs[depth - 1]];
++		sceneHeaders[i] = sceneHeader;
++		const auto& instance = sceneHeader->m_instances[instanceIDs[i]];
++		++depth;
+ 		if ( instance.m_type != hiprtInstanceTypeScene ) break;
+ 		sceneHeader = instance.m_scene;
+ 	}
+ 
+ #pragma unroll
+-	for ( int32_t i = depth - 1; i >= 0; --i )
++	for ( uint32_t i = 0; i < hiprtMaxInstanceLevels; ++i )
+ 	{
+-		sceneHeader				  = sceneHeaders[i];
+-		const auto&		 instance = sceneHeader->m_instances[instanceIDs[i]];
+-		hiprt::Transform tr		  = hiprt::Transform( sceneHeader->m_frames, instance.m_frameIndex, instance.m_frameCount );
+-		hiprt::Frame	 frame	  = tr.interpolateFrames( time );
+-		p						  = frame.transform( p );
++		int32_t j = depth - 1 - i;
++		if ( j >= 0 )
++		{
++			sceneHeader				  = sceneHeaders[j];
++			const auto&		 instance = sceneHeader->m_instances[instanceIDs[j]];
++			hiprt::Transform tr		  = hiprt::Transform( sceneHeader->m_frames, instance.m_frameIndex, instance.m_frameCount );
++			hiprt::Frame	 frame	  = tr.interpolateFrames( time );
++			p						  = frame.transform( p );
++		}
+ 	}
+ 
+ 	return p;
+@@ -1873,24 +1878,29 @@
+ 	hiprt::SceneHeader* sceneHeader = reinterpret_cast<hiprt::SceneHeader*>( scene );
+ 	float3				v			= vector;
+ 
+-	uint32_t depth;
++	uint32_t depth = 0;
+ #pragma unroll
+-	for ( depth = 1; depth < hiprtMaxInstanceLevels; ++depth )
++	for ( uint32_t i = 0; i < hiprtMaxInstanceLevels; ++i )
+ 	{
+-		sceneHeaders[depth - 1] = sceneHeader;
+-		const auto& instance	= sceneHeader->m_instances[instanceIDs[depth - 1]];
++		sceneHeaders[i] = sceneHeader;
++		const auto& instance = sceneHeader->m_instances[instanceIDs[i]];
++		++depth;
+ 		if ( instance.m_type != hiprtInstanceTypeScene ) break;
+ 		sceneHeader = instance.m_scene;
+ 	}
+ 
+ #pragma unroll
+-	for ( int32_t i = depth - 1; i >= 0; --i )
++	for ( uint32_t i = 0; i < hiprtMaxInstanceLevels; ++i )
+ 	{
+-		sceneHeader				  = sceneHeaders[i];
+-		const auto&		 instance = sceneHeader->m_instances[instanceIDs[i]];
+-		hiprt::Transform tr		  = hiprt::Transform( sceneHeader->m_frames, instance.m_frameIndex, instance.m_frameCount );
+-		hiprt::Frame	 frame	  = tr.interpolateFrames( time );
+-		v						  = frame.transformVector( v );
++		int32_t j = depth - 1 - i;
++		if ( j >= 0 )
++		{
++			sceneHeader				  = sceneHeaders[j];
++			const auto&		 instance = sceneHeader->m_instances[instanceIDs[j]];
++			hiprt::Transform tr		  = hiprt::Transform( sceneHeader->m_frames, instance.m_frameIndex, instance.m_frameCount );
++			hiprt::Frame	 frame	  = tr.interpolateFrames( time );
++			v						  = frame.transformVector( v );
++		}
+ 	}
+ 
+ 	return v;
+--- a/contrib/Orochi/ParallelPrimitives/RadixSortKernels.h
++++ b/contrib/Orochi/ParallelPrimitives/RadixSortKernels.h
+@@ -402,6 +402,21 @@ extern "C" __global__ void GHistogram( RADIX_SORT_KEY_TYPE* inputs, u32 numberOf
+ 	}
+ }
+ 
++// __ballot_sync() and __ballot() cover a whole hardware warp or wavefront,
++// but OnesweepReorder splits the block into WARP_SIZE-wide logical warps and a
++// 64-wide wavefront holds two of them. Return only the calling lane's own
++// logical warp, so bit i of the result belongs to its lane i. On a 32-wide
++// wavefront the shift is zero and the result is unchanged.
++__device__ inline u32 logicalWarpBallot( bool predicate )
++{
++#if defined( ITS )
++	return __ballot_sync( 0xFFFFFFFF, predicate );
++#else
++	const u32 logicalWarpInWave = ( threadIdx.x % warpSize ) / WARP_SIZE;
++	return static_cast<u32>( __ballot( predicate ) >> ( logicalWarpInWave * WARP_SIZE ) );
++#endif
++}
++
+ template <bool keyPair>
+ __device__ __forceinline__ void OnesweepReorder( RADIX_SORT_KEY_TYPE* inputKeys, RADIX_SORT_KEY_TYPE* outputKeys, RADIX_SORT_VALUE_TYPE* inputValues, RADIX_SORT_VALUE_TYPE* outputValues, u32 numberOfInputs, u32* gpSumBuffer,
+ 												  volatile u64* lookBackBuffer, u32* tailIterator, u32 startBits, u32 iteration )
+@@ -462,23 +477,12 @@ __device__ __forceinline__ void OnesweepReorder( RADIX_SORT_KEY_TYPE* inputKeys,
+ 		u32 bucketIndex = extractDigit( getKeyBits( keys[k] ), bitLocation );
+ 
+ 		// check the attendees
+-		u32 broThreads =
+-#if defined( ITS )
+-			__ballot_sync( 0xFFFFFFFF,
+-#else
+-			__ballot(
+-#endif
+-						   itemIndex < numberOfInputs );
++		u32 broThreads = logicalWarpBallot( itemIndex < numberOfInputs );
+ 
+ 		for( int j = 0; j < N_RADIX; ++j )
+ 		{
+ 			u32 bit = ( bucketIndex >> j ) & 0x1;
+-			u32 difference = ( 0xFFFFFFFF * bit ) ^
+-#if defined( ITS )
+-								__ballot_sync( 0xFFFFFFFF, bit != 0 );
+-#else
+-								__ballot( bit != 0 );
+-#endif
++			u32 difference = ( 0xFFFFFFFF * bit ) ^ logicalWarpBallot( bit != 0 );
+ 			broThreads &= ~difference;
+ 		}
+ 
+--- a/contrib/Orochi/Orochi/Orochi.cpp
++++ b/contrib/Orochi/Orochi/Orochi.cpp
+@@ -938,8 +938,9 @@
+ 
+ oroDevice oroSetRawDevice( oroApi api, oroDevice dev ) 
+ {
+-	ioroDevice d( dev );
++	ioroDevice d{};
+ 	d.setApi( api );
++	d.setDevice( dev );
+ 	return *(oroDevice*)&d;
+ }
+ 
+--- a/contrib/Orochi/contrib/hipew/src/hipew.cpp
++++ b/contrib/Orochi/contrib/hipew/src/hipew.cpp
+@@ -625,6 +625,13 @@
+       "amdhip64.dll",   // <- hip '5.x' DLL.
+       NULL };
+   const char* hiprtc_paths[] = {
++      "hiprtc0714.dll",
++      "hiprtc0713.dll",
++      "hiprtc0712.dll",
++      "hiprtc0711.dll",
++      "hiprtc0710.dll",
++      "hiprtc0709.dll",
++      "hiprtc0708.dll",
+       "hiprtc0707.dll",
+       "hiprtc0706.dll",
+       "hiprtc0705.dll",

@@ -1,14 +1,23 @@
 #pragma once
 
+#ifdef USE_ROCM
+// ROCm/HIP build: there is no OptiX header set and no CUDA runtime. float2/3/4
+// come from HIP's vector types, which the including translation unit (the JIT
+// kernel source, or a torch/HIP host TU) has already pulled in.
+struct IntersectionInfo;
+#else
 #include <optix.h>
 #include <cuda_runtime.h>
+#endif
 
 #include "config.h"
 
 
+#ifndef USE_ROCM
 // Define the data types
 typedef unsigned int uint32_t;
 typedef unsigned long int uint64_t;
+#endif  // on ROCm these come from the HIP headers, and redefining them clashes
 
 
 // Define the data structure used in the OptiX kernel
@@ -20,8 +29,10 @@ struct MissData {};
 // Define the global data structure used in the OptiX kernel
 struct Params
 {
+#ifndef USE_ROCM
     // OptiX handler
     OptixTraversableHandle handle;
+#endif
 
     // Global parameters
     bool training;  // training or testing
@@ -80,6 +91,16 @@ struct Params
     float2* dL_dscales;  // (P, 2), gradient of scales
     float4* dL_drotations;  // (P, 4), gradient of rotations
     float* dL_dtransMat_precomp;  // (P, 9), gradient of trans matrix
+
+#ifdef USE_ROCM
+    // Per-ray chunk scratch in global memory, (H * W * CHUNK_SIZE) entries. The
+    // hit-collection filter writes the t-sorted chunk here. This must not be a
+    // kernel stack array: above a register-pressure threshold the runtime-compiled
+    // traversal's writes through a stack payload pointer stop being visible to the
+    // kernel, and the heavy shading and gradient locals push both kernels past that
+    // threshold. A global buffer is immune to register pressure.
+    IntersectionInfo* chunk_buffer;
+#endif
 };
 
 

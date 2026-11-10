@@ -136,6 +136,10 @@ __forceinline__ __device__ float4 dnormvdv(float4 v, float4 dv)
 }
 
 
+#ifndef USE_ROCM
+// HIP defines the full operator set for float2/float3/float4 on the vector
+// types themselves, so these free operators are CUDA-only; defining them on
+// HIP makes every use ambiguous.
 __forceinline__ __device__ float2&   operator/=  (float2& a, const float2& b)       {a.x /= b.x; a.y /= b.y; return a;}
 __forceinline__ __device__ float2&   operator*=  (float2& a, const float2& b)       {a.x *= b.x; a.y *= b.y; return a;}
 __forceinline__ __device__ float2&   operator+=  (float2& a, const float2& b)       {a.x += b.x; a.y += b.y; return a;}
@@ -199,6 +203,7 @@ __forceinline__ __device__ float4    operator*   (float a, const float4& b)     
 __forceinline__ __device__ float4    operator+   (float a, const float4& b)         {return make_float4(a + b.x, a + b.y, a + b.z, a + b.w);}
 __forceinline__ __device__ float4    operator-   (float a, const float4& b)         {return make_float4(a - b.x, a - b.y, a - b.z, a - b.w);}
 __forceinline__ __device__ float4    operator-   (const float4& a)                  {return make_float4(-a.x, -a.y, -a.z, -a.w);}
+#endif  // !USE_ROCM
 
 __forceinline__ __device__ float3 	 cross		 (float3 a, float3 b)				{return make_float3(a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y - a.y*b.x);}
 __forceinline__ __device__ float3 	 sqrtf3 	 (float3 a)							{return make_float3(sqrtf(a.x), sqrtf(a.y), sqrtf(a.z));}
@@ -363,7 +368,11 @@ __forceinline__ __device__ bool in_frustum(int idx,
 		if (prefiltered)
 		{
 			printf("Point is filtered although prefiltered is set. This shouldn't happen!");
+#ifdef USE_ROCM
+			__builtin_trap();
+#else
 			__trap();
+#endif
 		}
 		return false;
 	}
@@ -400,7 +409,15 @@ inline __device__ void quat_to_rotmat(const float4& quat, float3* R) {
 	);
 }
 
-inline __device__ float3 quat_to_rotmat_transpose(const float4& quat, float3* R) {
+// Fills the (transposed) rotation matrix R in place. This was declared to return
+// float3 but has no return statement, and every caller discards the result, so
+// falling off the end is undefined behavior. nvcc tolerates it because the dead
+// return register is never read; clang-based HIP compilation does not. Inlined
+// into the register-heavy backward traversal, the undefined return path lets the
+// optimizer poison R, which NaNs the surfel normal and every geometric gradient
+// on the heavily hit disks. Returning void removes the undefined behavior at the
+// source and is correct on both back ends.
+inline __device__ void quat_to_rotmat_transpose(const float4& quat, float3* R) {
 	// quat to rotation matrix
 	float s = rsqrtf(
 		quat.w * quat.w + quat.x * quat.x + quat.y * quat.y + quat.z * quat.z

@@ -1,7 +1,30 @@
-import site
+import os
 import torch
 import torch.nn as nn
 from typing import NamedTuple
+
+# On Windows the HIP RT runtime library is staged next to this __init__.py by
+# setup.py, so register the package directory as a DLL search path before _C is
+# imported. Orochi's loader uses plain LoadLibraryA, which follows the legacy
+# search order and ignores AddDllDirectory, so the ROCm SDK bin directories are
+# prepended to PATH as well.
+if os.name == 'nt' and torch.version.hip:
+    import sys as _sys
+    _pkg_dir = os.path.dirname(os.path.abspath(__file__))
+    os.add_dll_directory(_pkg_dir)
+    _venv_sp = os.path.normpath(os.path.join(os.path.dirname(_sys.executable), '..', 'Lib', 'site-packages'))
+    _prepend = []
+    for _sdk in ('_rocm_sdk_core', '_rocm_sdk_devel'):
+        _d = os.path.join(_venv_sp, _sdk, 'bin')
+        if os.path.isdir(_d):
+            _prepend.append(_d)
+            os.add_dll_directory(_d)
+    if _prepend:
+        os.environ['PATH'] = os.pathsep.join(_prepend) + os.pathsep + os.environ.get('PATH', '')
+    _rocm_devel = os.path.join(_venv_sp, '_rocm_sdk_devel')
+    if os.path.isdir(_rocm_devel) and not os.environ.get('ROCM_PATH'):
+        os.environ['ROCM_PATH'] = _rocm_devel
+    del _sys, _pkg_dir, _venv_sp, _prepend, _rocm_devel, _sdk, _d
 
 from . import _C
 
@@ -222,10 +245,22 @@ class SurfelTracer(nn.Module):
     def __init__(self,) -> None:
         super().__init__()
 
-        # Find the OptiX shared library
-        self.pkg_dir = site.getsitepackages()[0] + '/diff_surfel_tracing'
+        # Locate the package directory, which holds the OptiX PTX modules on
+        # NVIDIA and the runtime-compiled kernel source on AMD. Resolve it from
+        # this module's own location so it is correct for an editable install
+        # too, not only for a wheel installed into site-packages.
+        self.pkg_dir = os.path.dirname(os.path.abspath(__file__))
 
-        # Create the OptiX context
+        # HIP RT compiles its BVH builder and traversal kernels at runtime and
+        # reads their sources from HIPRT_PATH. Point it at the HIP RT root
+        # staged inside the package so the tracer is self-contained. No effect
+        # on the NVIDIA build.
+        hiprt_root = os.path.join(self.pkg_dir, 'hiprt_root')
+        if os.path.isdir(hiprt_root) and not os.environ.get('HIPRT_PATH'):
+            os.environ['HIPRT_PATH'] = hiprt_root
+
+        # Create the tracer context. The C++ class name is the same on both
+        # back ends so the binding is unchanged.
         self.optix_context = _C.OptiXStateWrapper(self.pkg_dir)
 
     def build_acceleration_structure(self,

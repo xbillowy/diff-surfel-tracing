@@ -11,11 +11,19 @@
 #include <iostream>
 #include <algorithm>
 #include <functional>
+#ifdef USE_ROCM
+#include <c10/hip/HIPStream.h>
+#else
 #include <optix.h>
 #include <optix_stubs.h>
+#endif
 
 #include "trace_surfels.h"
+#ifdef USE_ROCM
+#include "hiprt_tracer/hiprt_wrapper.h"
+#else
 #include "optix_tracer/common.h"
+#endif
 #include "optix_tracer/config.h"
 #include "optix_tracer/params.h"
 
@@ -23,6 +31,16 @@
 #define CHECK_INPUT(x)											\
 	AT_ASSERTM(x.type().is_cuda(), #x " must be a CUDA tensor")
 	// AT_ASSERTM(x.is_contiguous(), #x " must be contiguous")
+
+#ifdef USE_ROCM
+// torch's current HIP stream as a raw hipStream_t, handed to the HIP RT wrapper
+// as a void* (the wrapper casts it back to oroStream == hipStream_t).
+static inline void* currentHipStreamPtr()
+{
+    return reinterpret_cast<void*>(c10::hip::getCurrentHIPStream().stream());
+}
+#endif
+
 
 std::function<char*(size_t N)> resizeFunctional(torch::Tensor& t) {
 	auto lambda = [&t](size_t N) {
@@ -48,6 +66,17 @@ BuildAccelerationStructure(
         AT_ERROR("triangles must have dimensions (num_triangles, 3)");
     }
 
+#ifdef USE_ROCM
+    // HIP RT sizes and owns its own build scratch, so the explicit temp/output
+    // buffer dance below has no counterpart here.
+    auto verts_c = vertices.contiguous();
+    auto tris_c = triangles.contiguous();
+    hiprtTracerBuildGeometry(
+        stateWrapper,
+        verts_c.data_ptr<float>(), (int)verts_c.size(0),
+        tris_c.data_ptr<int>(), (int)tris_c.size(0),
+        rebuild, currentHipStreamPtr());
+#else
     // Use default options for simplicity
     // In a real use case we would want to enable compaction, etc
     OptixAccelBuildOptions accel_options = {};
@@ -156,6 +185,7 @@ BuildAccelerationStructure(
     // {
     //     stateWrapper.optixState->d_gas_output_buffer = d_buffer_temp_output_gas_and_compacted_size;
     // }
+#endif
 }
 
 
@@ -186,8 +216,10 @@ TraceSurfelsCUDA(
     const int max_trace_depth,
     const float specular_threshold)
 {
+#ifndef USE_ROCM
     // Create CUDA stream
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+#endif
 
     // Check the dimensions of the input xyz
     if (means3D.ndimension() != 2 || means3D.size(1) != 3) {
@@ -232,8 +264,21 @@ TraceSurfelsCUDA(
     torch::Tensor a_weights;
 
     // Create global parameters for the OptiX program
-    Params params;
+
+#ifdef USE_ROCM
+    // Global per-ray chunk scratch for the hit-collection filter. IntersectionInfo
+    // is two 32-bit words, CHUNK_SIZE entries per ray. It must live in global
+    // memory rather than on the kernel stack (see params.h).
+    torch::TensorOptions chunk_opts = torch::TensorOptions().dtype(torch::kInt32).device(torch::kCUDA);
+    torch::Tensor chunk_scratch = torch::empty({H, W, CHUNK_SIZE * 2}, chunk_opts);
+#endif
+
+    Params params{};
+#ifdef USE_ROCM
+    params.chunk_buffer = reinterpret_cast<IntersectionInfo*>(chunk_scratch.data_ptr<int>());
+#else
     params.handle = stateWrapper.optixState->gas_handle;
+#endif
     params.max_trace_depth = max_trace_depth;
     params.specular_threshold = specular_threshold;
     // Store input parameters
@@ -284,6 +329,11 @@ TraceSurfelsCUDA(
         params.a_weights = a_weights.contiguous().data_ptr<float>();
     }
 
+#ifdef USE_ROCM
+    // Launch the runtime-compiled forward trace kernel (index 0). The wrapper
+    // uploads the parameter block, launches over the (H, W) grid and synchronizes.
+    hiprtTracerLaunch(stateWrapper, 0, &params, sizeof(Params), H, W, currentHipStreamPtr());
+#else
     // Allocate memory for the parameters
     CUdeviceptr d_params;
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_params), sizeof(Params)));
@@ -297,6 +347,7 @@ TraceSurfelsCUDA(
 
     // Synchronize stream
     CUDA_CHECK(cudaStreamSynchronize(stream));
+#endif
 
     // Return
     return std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>(
@@ -343,8 +394,10 @@ TraceSurfelsBackwardCUDA(
     const torch::Tensor& dL_dout_dist,
     const torch::Tensor& dL_dout_aux)
 {
+#ifndef USE_ROCM
     // Create CUDA stream
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+#endif
 
     // Check input
     CHECK_INPUT(ray_o);
@@ -386,8 +439,21 @@ TraceSurfelsBackwardCUDA(
     torch::Tensor dL_dtransMat_precomp = torch::zeros({P, 9}, means3D.options());
 
     // Create global parameters for the OptiX program
-    Params params;
+
+#ifdef USE_ROCM
+    // Global per-ray chunk scratch for the hit-collection filter. IntersectionInfo
+    // is two 32-bit words, CHUNK_SIZE entries per ray. It must live in global
+    // memory rather than on the kernel stack (see params.h).
+    torch::TensorOptions chunk_opts = torch::TensorOptions().dtype(torch::kInt32).device(torch::kCUDA);
+    torch::Tensor chunk_scratch = torch::empty({H, W, CHUNK_SIZE * 2}, chunk_opts);
+#endif
+
+    Params params{};
+#ifdef USE_ROCM
+    params.chunk_buffer = reinterpret_cast<IntersectionInfo*>(chunk_scratch.data_ptr<int>());
+#else
     params.handle = stateWrapper.optixState->gas_handle;
+#endif
     params.max_trace_depth = max_trace_depth;
     params.specular_threshold = specular_threshold;
     // Store input parameters
@@ -443,6 +509,10 @@ TraceSurfelsBackwardCUDA(
     params.dL_drotations = reinterpret_cast<float4*>(dL_drotations.contiguous().data_ptr<float>());
     params.dL_dtransMat_precomp = dL_dtransMat_precomp.contiguous().data_ptr<float>();
 
+#ifdef USE_ROCM
+    // Launch the runtime-compiled backward trace kernel (index 1).
+    hiprtTracerLaunch(stateWrapper, 1, &params, sizeof(Params), H, W, currentHipStreamPtr());
+#else
     // Allocate memory for the parameters
     CUdeviceptr d_params;
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_params), sizeof(Params)));
@@ -456,6 +526,7 @@ TraceSurfelsBackwardCUDA(
 
     // Synchronize stream
     CUDA_CHECK(cudaStreamSynchronize(stream));
+#endif
 
     return std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>(
         dL_dray_o, dL_dray_d, dL_dmeans3D, dL_dgrads3D, dL_dshs, dL_dcolors, dL_dothers, dL_dopacities, dL_dscales, dL_drotations, dL_dtransMat_precomp);

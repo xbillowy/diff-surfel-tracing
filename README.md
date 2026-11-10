@@ -45,6 +45,49 @@ export CUDA_HOME="/usr/local/cuda"
 export OPTIX_HOME=/path/to/optix
 ```
 
+### AMD GPUs
+
+On an AMD GPU with a ROCm build of PyTorch, the tracer runs on [HIP RT](https://github.com/GPUOpen-LibrariesAndSDKs/HIPRT) instead of OptiX, and `setup.py` selects that back end automatically. The HIP RT SDK is included in the `third_party/hiprt` directory as a submodule, in the same way as the OptiX headers, but unlike the header-only OptiX SDK it has to be built once before the tracer is installed.
+
+```bash
+# Clone the repository
+git clone https://github.com/xbillowy/diff-surfel-tracing.git --recursive
+cd diff-surfel-tracing
+
+# Build HIP RT, applying the fixes it still needs. They are bugs in HIP RT and
+# in the copy of Orochi it vendors rather than tracer bugs, and most of them are
+# not fixed on HIP RT's main branch either, so they are tracked for reporting
+# there. The patch header describes every entry and says which of them the
+# pinned tag is simply too old to have.
+git -C third_party/hiprt apply ../../third_party/hiprt-rocm-fixes.patch
+export HIP_PATH=/opt/rocm
+cmake -DCMAKE_BUILD_TYPE=Release -DBITCODE=OFF -DNO_UNITTEST=ON -DHIP_PATH=/opt/rocm \
+    -S third_party/hiprt -B third_party/hiprt/build
+cmake --build third_party/hiprt/build --target hiprt03001 -j16
+
+# Install using pip
+export PYTORCH_ROCM_ARCH=gfx942  # the architecture of your GPU
+pip install -v --no-build-isolation .  # add the `-v` flag for verbose output
+```
+
+`setup.py` imports PyTorch to select the back end, so `--no-build-isolation` lets pip build against the ROCm PyTorch already installed rather than in an isolated environment that lacks it. The installed package carries the HIP RT library and the kernel sources it compiles at runtime, so the cloned repository is not needed after the install.
+
+If you would rather build HIP RT somewhere outside the repository, set `HIPRT_HOME` to that directory, mirroring `OPTIX_HOME` above.
+
+```bash
+export HIPRT_HOME=/path/to/hiprt
+```
+
+The AMD back end compiles its trace kernels at runtime rather than ahead of time into PTX, so the first trace after an install is slower while the kernels are compiled and written to the on-disk cache.
+
+Keep `ROCM_PATH` (or `HIP_PATH`) pointing at the ROCm SDK when running the tracer, not only when building it, unless ROCm is installed at `/opt/rocm` on Linux. The runtime compiler takes the HIP headers from that SDK's `include` directory, falling back to `/opt/rocm/include`; without them the first trace fails with `'hip/hip_runtime.h' file not found`. On Windows the variable is always needed, because HIP RT also loads the HIP runtime and its runtime compiler from the SDK's `bin` directory; without it, Windows finds the HIP runtime installed with the display driver first, and that copy comes without the runtime compiler the tracer needs.
+
+To check the installation on your own GPU, run [`example/validate_rocm.py`](example/validate_rocm.py). It needs no downloaded data: it builds a small synthetic surfel scene and checks the forward image, the seven backward gradients that scene exercises, finite-difference agreement with the analytic gradients, a reflected bounce, scenes large enough to reach the multi-block sort in the acceleration-structure build, and a cold kernel cache. The four gradients it leaves out are `ray_o` and `ray_d`, which the scene does not differentiate, and `shs` and `cov3D_precomp`, which are the alternative parameterization of the colors and the scale and rotation pair it does use.
+
+```bash
+HIP_VISIBLE_DEVICES=0 python3 example/validate_rocm.py
+```
+
 
 ## 🛠️ Usage
 

@@ -4,7 +4,14 @@
 #include <string>
 #include <torch/extension.h>
 
+#ifdef USE_ROCM
+// ROCm/HIP build: the OptiX state wrapper is reimplemented on HIP RT. The class
+// name OptiXStateWrapper is kept so ext.cpp and the Python autograd wrapper
+// reference the same symbol on both back ends.
+#include "hiprt_tracer/hiprt_wrapper.h"
+#else
 #include "optix_tracer/optix_wrapper.h"
+#endif
 
 
 void 

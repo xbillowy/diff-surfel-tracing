@@ -1,3 +1,7 @@
 [submodule "third_party/optix"]
 	path = third_party/optix
 	url = https://github.com/NVIDIA/optix-dev.git
+[submodule "third_party/hiprt"]
+	path = third_party/hiprt
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/HIPRT.git
+	branch = 3.1.0.cb09c56

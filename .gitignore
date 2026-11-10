@@ -22,3 +22,24 @@ __pycache__/
 *.npz
 
 data
+
+# Build-time staged copies of the runtime-compiled kernel source and the HIP RT
+# root next to the package __init__.py; the sources of truth are hiprt_tracer/,
+# optix_tracer/ and the third_party/hiprt submodule.
+diff_surfel_tracing/hiprt_root/
+diff_surfel_tracing/kernels.h
+diff_surfel_tracing/params.h
+diff_surfel_tracing/config.h
+diff_surfel_tracing/auxiliary.h
+diff_surfel_tracing/hiprt_cache/
+# HIP RT writes its kernel cache here when the package directory is not writable
+cache/
+diff_surfel_tracing/*.dll
+# Windows AMD build: setup.py copies the torch-facing .cpp sources to _winhip.cu
+# so they compile with hipcc; the copies are regenerated on every install.
+ext_winhip.cu
+trace_surfels_winhip.cu
+# Build-time hipified copies of the sources, produced by torch's build.
+*_hip.cpp
+*_hip.h
+*_winhip.hip
